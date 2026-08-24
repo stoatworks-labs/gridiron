@@ -1,0 +1,96 @@
+# The project video: a folder of logos, made into a press wall, then animated.
+#
+# Every frame is the real plugin rendering through the real FFGL sequence --
+# this is the generator being *operated*, not a mock-up. Render with:
+#
+#   ./build/gdseq --out /tmp/gridiron.rgba --script tools/video.cues \
+#                 --logos demo/logos --size 1920x1080 --seconds 30 --fps 30
+#
+# Syntax: `T Name=V` sets at a time, `T1..T2 Name=V1..V2` ramps between two
+# (eased, because a parameter that starts and stops abruptly reads as a cut).
+#
+# Continuous values are the 0..1 the host sees, not the physical quantity --
+# see Controls.h for why there is no other kind. Counts and dropdowns hold
+# their real value.
+#
+# The order is the order of the argument. First that a folder of logos IS a
+# wall, because if that does not read in the first three seconds nothing later
+# matters. Then the two things that make it a good wall rather than a grid --
+# margins normalised, and a hero block. Then that it moves. The cube is last
+# because it is the showpiece, and a showpiece opening would make everything
+# after it look like a climbdown.
+
+# ---------------------------------------------- 0s: a folder of logos, as a wall
+# Five across, three down, generous gutters. This is a press board and nothing
+# else: the whole proposition, stated plainly.
+0.0   Mode=0
+0.0   Columns=5
+0.0   Rows=3
+0.0   CellPad=0.30
+0.0   Fit=0
+0.0   Seed=7
+0.0   Speed=0.5
+0.0   Hero=0
+
+# ------------------------------- 4s: the pack is inconsistent, and it shows
+# Still on Fit. Half these marks were exported tight and half sit in a square
+# canvas full of air, so they read at wildly different sizes -- which looks
+# like a mistake by whoever built the wall. Hold on it so the fix has something
+# to fix.
+4.0   ShowGrid=1
+4.0   GridWidth=0.06
+4.0..5.0 GridR=0.35..0.35
+4.0   GridG=0.40
+4.0   GridB=0.52
+
+# ------------------------------------------- 6s: Trim margins, and they line up
+# The single most useful control in the plugin. Every mark jumps to the same
+# optical size, and nothing is cropped to get there.
+6.0   Fit=2
+7.5   ShowGrid=0
+
+# --------------------------------------------------- 9s: a hero for the headline
+# The block leaves the ordinary pool, so the fill works around the hole -- and
+# nothing touching it repeats its logo.
+9.0   Hero=1
+9.0   HeroCols=2
+9.0   HeroRows=1
+9.0   HeroLogo=16
+
+# ------------------------------------------------------------- 12s: it twinkles
+# Every cell at its own point in its own cycle. The phases are hashed per cell,
+# so the wall never pulses in lockstep -- which is the difference between
+# twinkling and one flashing rectangle.
+12.0  Mode=3
+12.0..14.0 Twinkle=0.0..0.85
+
+# ------------------------------------------- 16s: cells fade, and change logo
+# More logos than cells, so the wall cycles through the pack -- every sponsor
+# on screen the same total time, exactly, across a cycle.
+16.0  Twinkle=0.0
+16.0  Mode=4
+16.0..17.0 Fade=0.0..1.0
+16.0  Speed=0.62
+
+# ------------------------------------------------------------ 20s: slot machine
+# Each column is a reel at its own speed, decelerating to a stop. The travel is
+# a whole number of cells, so a reel cannot land out of alignment: the landing
+# is exact by construction rather than snapped at the end.
+20.0  Fade=0.0
+20.0  Hero=0
+20.0  Mode=1
+20.0  Speed=0.55
+20.0  Columns=6
+20.0  Rows=4
+20.0  CellPad=0.22
+
+# ------------------------------------------------------------------- 25s: Rubik
+# The whole wall on a cube, one slice at a time. The sequence is a scramble
+# followed by its own inverse, so it returns to a solved cube and loops without
+# a jump.
+25.0  Mode=2
+25.0  CellPad=0.12
+25.0  Speed=0.58
+25.0  Fov=0.42
+25.0..30.0 CamYaw=0.545..0.60
+25.0..30.0 CamPitch=0.58..0.545

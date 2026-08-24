@@ -169,6 +169,13 @@ if(GRIDIRON_BUILD_TOOLS)
     # oxbow covers registration and instantiation on every platform; this covers
     # the one thing oxbow cannot reach, which is a loaded folder.
     if(APPLE)
+        # The project video's footage: the real plugin class driven by a cue
+        # sheet, in a headless context. macOS-only for the same reason as the
+        # pixel harness -- it stands up CGL directly.
+        add_executable(gdseq tools/gdseq/main.mm)
+        target_link_libraries(gdseq PRIVATE gridiron_core "-framework OpenGL")
+        target_compile_options(gdseq PRIVATE -Wno-deprecated-declarations)
+
         add_executable(gdtest_render tools/gdtest/Render_test.mm)
         target_link_libraries(gdtest_render PRIVATE gridiron_core "-framework OpenGL")
         target_compile_options(gdtest_render PRIVATE -Wno-deprecated-declarations)

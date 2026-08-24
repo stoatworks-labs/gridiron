@@ -234,6 +234,18 @@ int main()
 			}
 		}
 		Check( !clash, "no cell touching the hero block repeats the hero's logo" );
+
+		// And the stronger rule it turned into: a logo sitting permanently in
+		// the hero is out of the rotation altogether. The first cut of the
+		// project video put STOATWORKS LABS on the wall twice -- once as the
+		// hero, once as an ordinary cell four along -- which is legal under the
+		// adjacency rule and still reads as a mistake.
+		bool anywhere = false;
+		for( const auto& step : s.steps )
+			for( const auto& p : step.cells )
+				if( !p.hero && p.logo == 5 )
+					anywhere = true;
+		Check( !anywhere, "the hero's logo appears nowhere else on the wall" );
 	}
 	{
 		FillOptions o;

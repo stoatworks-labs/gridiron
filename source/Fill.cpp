@@ -161,10 +161,30 @@ Schedule BuildSchedule( const std::vector< Logo >& logos, int columns, int rows,
 		return out;
 	}
 
-	// Cycle length. See the header: L/g steps makes C/g placements per logo,
+	// A logo sitting in the hero block is on screen permanently, so it is out of
+	// the ordinary rotation entirely -- not merely kept off the cells that touch
+	// the block. Leaving it in put the same mark on the wall twice, which reads
+	// as a mistake, and it is wrong about airtime too: a permanent slot is more
+	// time than any rotation can give, not less.
+	const int heroLogo = hero.Valid() ? std::min( std::max( options.heroLogo, 0 ), L - 1 ) : -1;
+
+	// Eligible logos: everything but the hero's. With one logo and a hero there
+	// is nothing left to rotate, so the hero is drawn and the pool falls back to
+	// the whole list rather than leaving the wall empty.
+	std::vector< int > eligible;
+	for( int i = 0; i < L; ++i )
+		if( i != heroLogo )
+			eligible.push_back( i );
+	if( eligible.empty() )
+		for( int i = 0; i < L; ++i )
+			eligible.push_back( i );
+
+	const int E = static_cast< int >( eligible.size() );
+
+	// Cycle length. See the header: E/g steps makes C/g placements per logo,
 	// both exact, and no other length can.
-	const int g       = std::gcd( L, C );
-	const int perLogo = options.equalAirtime ? ( C / g ) : std::max( 1, ( C + L - 1 ) / L );
+	const int g       = std::gcd( E, C );
+	const int perLogo = options.equalAirtime ? ( C / g ) : std::max( 1, ( C + E - 1 ) / E );
 
 	// Where each grid position lives in the cell list, so a cell can find the
 	// neighbour to its left and above without searching.
@@ -178,8 +198,12 @@ Schedule BuildSchedule( const std::vector< Logo >& logos, int columns, int rows,
 	// it. That is what makes parity exact even when wide-logo spanning changes
 	// how many logos a step consumes -- the bag does not care how fast it
 	// drains, only that every logo is in it the same number of times.
-	std::vector< int > remaining( static_cast< size_t >( L ), perLogo );
+	// Sized L so a logo index is its own slot, but only the eligible ones are
+	// ever stocked -- the hero's stays at zero and the chooser skips it.
+	std::vector< int > remaining( static_cast< size_t >( L ), 0 );
 	std::vector< int > total( static_cast< size_t >( L ), 0 );
+	for( int i : eligible )
+		remaining[ static_cast< size_t >( i ) ] = perLogo;
 
 	const int kMaxSteps = 4096;
 	int       bags      = 1;
@@ -210,7 +234,9 @@ Schedule BuildSchedule( const std::vector< Logo >& logos, int columns, int rows,
 			if( !anyLeft )
 			{
 				++bags;
-				std::fill( remaining.begin(), remaining.end(), perLogo );
+				std::fill( remaining.begin(), remaining.end(), 0 );
+				for( int e : eligible )
+					remaining[ static_cast< size_t >( e ) ] = perLogo;
 			}
 
 			Placement& p = s.cells[ i ];
@@ -229,16 +255,10 @@ Schedule BuildSchedule( const std::vector< Logo >& logos, int columns, int rows,
 					up = occupying[ static_cast< size_t >( ui ) ];
 			}
 
-			// Does this cell touch the hero block? Only then is the hero's logo
-			// off limits here.
-			int heroBar = -1;
-			if( options.noAdjacentRepeat && hero.Valid() )
-			{
-				const bool touches =
-					( p.col >= hero.x - 1 && p.col <= hero.x + hero.w && p.row >= hero.y - 1 && p.row <= hero.y + hero.h );
-				if( touches )
-					heroBar = std::min( std::max( options.heroLogo, 0 ), L - 1 );
-			}
+			// The hero's logo is already out of the pool entirely, so nothing
+			// extra is needed here -- but keep the bar for the degenerate case
+			// where the pool had to fall back to the whole list.
+			const int heroBar = ( options.noAdjacentRepeat && hero.Valid() ) ? heroLogo : -1;
 
 			const uint32_t cellKey = static_cast< uint32_t >( step ) * 7919u + static_cast< uint32_t >( i );
 			const int      logo    = options.noAdjacentRepeat
@@ -280,7 +300,7 @@ Schedule BuildSchedule( const std::vector< Logo >& logos, int columns, int rows,
 			h.colSpan = hero.w;
 			h.rowSpan = hero.h;
 			h.hero    = true;
-			h.logo    = std::min( std::max( options.heroLogo, 0 ), L - 1 );
+			h.logo    = heroLogo;
 			s.cells.push_back( h );
 		}
 
@@ -311,7 +331,8 @@ Schedule BuildSchedule( const std::vector< Logo >& logos, int columns, int rows,
 	const int cycleSteps = static_cast< int >( out.steps.size() );
 	(void)bags;
 
-	std::string n = std::to_string( L ) + " logos, " + std::to_string( C ) + " cells, " +
+	std::string n = std::to_string( L ) + " logos" + ( heroLogo >= 0 ? " (1 in the hero)" : "" ) + ", " +
+					std::to_string( C ) + " cells, " +
 					std::to_string( cycleSteps ) + " step cycle";
 	if( options.equalAirtime )
 		n += ", " + std::to_string( maxTotal ) + " placements each";
