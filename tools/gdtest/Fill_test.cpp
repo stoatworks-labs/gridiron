@@ -208,6 +208,34 @@ int main()
 		Check( !overlap, "no ordinary cell is drawn underneath it" );
 	}
 	{
+		// Regression. The hero block sits outside the ordinary pool, so the
+		// chooser's left/up neighbour test could not see it, and the very first
+		// wall rendered for publication put the hero logo directly beside an
+		// ordinary copy of itself -- in the top row, where the eye is being sent.
+		FillOptions o;
+		o.hero     = Hero::Top;
+		o.heroCols = 2;
+		o.heroRows = 1;
+		o.heroLogo = 5;
+		auto s     = BuildSchedule( MakeLogos( 11 ), 6, 4, o );
+
+		bool clash = false;
+		for( const auto& step : s.steps )
+		{
+			HeroRect h = HeroBlock( 6, 4, o );
+			for( const auto& p : step.cells )
+			{
+				if( p.hero || p.logo != 5 )
+					continue;
+				const bool touches =
+					( p.col >= h.x - 1 && p.col <= h.x + h.w && p.row >= h.y - 1 && p.row <= h.y + h.h );
+				if( touches )
+					clash = true;
+			}
+		}
+		Check( !clash, "no cell touching the hero block repeats the hero's logo" );
+	}
+	{
 		FillOptions o;
 		o.hero     = Hero::Middle;
 		o.heroCols = 99;

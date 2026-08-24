@@ -23,9 +23,17 @@ namespace
 /// "Most owed" is what keeps the counts level; the neighbour test is what makes
 /// the checkerboard fall out on its own when there are only two logos to deal.
 ///
+/// `hero` is excluded too, for the cells that touch the hero block. The hero is
+/// not an ordinary cell -- it is a merged block outside the pool -- so the
+/// neighbour test cannot reach it, and the first wall rendered for publication
+/// put the hero logo directly beside an ordinary copy of itself. A duplicate is
+/// most visible exactly where the eye is being sent, so the block gets the same
+/// protection the ordinary cells give each other. Pass -1 where there is no
+/// hero or the cell does not touch it.
+///
 /// Ties break on a hash of (cell, logo, seed), so the choice is arbitrary but
 /// fixed: same seed, same wall.
-int ChooseLogo( const std::vector< int >& remaining, int left, int up, uint32_t cellKey, uint32_t seed )
+int ChooseLogo( const std::vector< int >& remaining, int left, int up, int hero, uint32_t cellKey, uint32_t seed )
 {
 	int   best      = -1;
 	int   bestOwed  = -1;
@@ -36,7 +44,7 @@ int ChooseLogo( const std::vector< int >& remaining, int left, int up, uint32_t 
 		if( remaining[ i ] <= 0 )
 			continue;
 		const int logo = static_cast< int >( i );
-		if( logo == left || logo == up )
+		if( logo == left || logo == up || logo == hero )
 			continue;
 
 		const float tie = Hash01( cellKey, seed ^ ( static_cast< uint32_t >( logo ) * 0x85ebca6bu ) );
@@ -75,7 +83,10 @@ int CountAdjacentRepeats( const std::vector< Placement >& cells )
 			continue;
 		for( size_t j = 0; j < cells.size(); ++j )
 		{
-			if( j == i || cells[ j ].hero || cells[ j ].logo != a.logo )
+			// The hero IS compared against here, unlike in the chooser's own
+			// neighbour test: a wall where the hero touches a copy of itself is
+			// exactly as wrong as any other duplicate, and it should be counted.
+			if( j == i || cells[ j ].logo != a.logo )
 				continue;
 			const int dc = cells[ j ].col - a.col;
 			const int dr = cells[ j ].row - a.row;
@@ -218,10 +229,21 @@ Schedule BuildSchedule( const std::vector< Logo >& logos, int columns, int rows,
 					up = occupying[ static_cast< size_t >( ui ) ];
 			}
 
+			// Does this cell touch the hero block? Only then is the hero's logo
+			// off limits here.
+			int heroBar = -1;
+			if( options.noAdjacentRepeat && hero.Valid() )
+			{
+				const bool touches =
+					( p.col >= hero.x - 1 && p.col <= hero.x + hero.w && p.row >= hero.y - 1 && p.row <= hero.y + hero.h );
+				if( touches )
+					heroBar = std::min( std::max( options.heroLogo, 0 ), L - 1 );
+			}
+
 			const uint32_t cellKey = static_cast< uint32_t >( step ) * 7919u + static_cast< uint32_t >( i );
 			const int      logo    = options.noAdjacentRepeat
-										 ? ChooseLogo( remaining, left, up, cellKey, options.seed )
-										 : ChooseLogo( remaining, -1, -1, cellKey, options.seed );
+										 ? ChooseLogo( remaining, left, up, heroBar, cellKey, options.seed )
+										 : ChooseLogo( remaining, -1, -1, -1, cellKey, options.seed );
 			if( logo < 0 )
 				break;
 
