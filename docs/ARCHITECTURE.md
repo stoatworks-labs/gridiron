@@ -219,6 +219,9 @@ check that found it.
   framed the cube at three percent of the frame: a correct render of an unreadable
   picture.
 
-`tools/verify.sh` is still flipbook's check list and does not describe gridiron's
-checks. It is wrong until rewritten — do not read its header as a statement about
-this plugin.
+`tools/verify.sh` is gridiron's own, and runs the release job's macOS checks
+locally. `.github/workflows/release.yml` arrived from flipbook expecting two
+plugins and an OFX bundle, neither of which gridiron builds; both were removed
+before the first tag, and the demo logo pack now ships in place of flipbook's
+example sheet — a step-and-repeat with no logos to hand draws nothing on first
+run, which reads as a broken install rather than a missing input.

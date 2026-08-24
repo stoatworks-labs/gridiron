@@ -30,10 +30,20 @@ A phantom parameter that broke instantiation was found exactly here, on a build
 that was otherwise clean and green. `ctest`'s `render` suite is what checks
 pixels, because it can load a folder.
 
+## Before tagging, run `tools/verify.sh`
+
+It does the release job's macOS checks locally — registration, `lipo`, the
+`CFBundleExecutable`/binary match that makes `codesign` fail with a message
+naming neither the plist nor the cause, an actual ad-hoc sign of a copy, and
+`oxbow` instantiation. All of it takes a second.
+
+That matters more than it sounds: the fix for a bad tag is to re-point it, and a
+re-pointed tag is skipped by the autosigner — which keys on repo+tag — leaving
+the release unsigned and un-notarised for ever unless the state file is edited by
+hand.
+
 ## Do not trust
 
-- **`tools/verify.sh`** is still flipbook's check list. It is wrong until
-  rewritten; a pass there says nothing about gridiron.
 - **`ATTRIBUTIONS.md`** is generated from master lists in `stoatworks-backend` by
   `scripts/sync-attributions.py`. gridiron is not registered there yet, so the
   file here is hand-written and provisional. Register it before release, and note
