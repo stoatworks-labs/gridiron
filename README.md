@@ -22,14 +22,14 @@ FFGL source plugin for Resolume Arena and Avenue.
 
 ## Download
 
-**[v0.1.0](https://github.com/stoatworks-labs/gridiron/releases/tag/v0.1.0)** — prebuilt for macOS and Windows. Pick your platform:
+**[v0.1.1](https://github.com/stoatworks-labs/gridiron/releases/tag/v0.1.1)** — prebuilt for macOS and Windows. Pick your platform:
 
 <details>
 <summary><b>macOS</b> — Universal (Apple Silicon + Intel)</summary>
 
 | Build | Download | Size |
 | --- | --- | --- |
-| Universal (Apple Silicon + Intel) · .dmg disk image | [`gridiron-0.1.0-macos-universal.dmg`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.0/gridiron-0.1.0-macos-universal.dmg) | 2.5 MB |
+| Universal (Apple Silicon + Intel) · .dmg disk image | [`gridiron-0.1.1-macos-universal.dmg`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.1/gridiron-0.1.1-macos-universal.dmg) | 2.2 MB |
 | Universal (Apple Silicon + Intel) · .zip archive | [`gridiron-macos-universal.zip`](https://github.com/stoatworks-labs/gridiron/releases/latest/download/gridiron-macos-universal.zip) | 2.1 MB |
 
 </details>
@@ -39,14 +39,14 @@ FFGL source plugin for Resolume Arena and Avenue.
 
 | Build | Download | Size |
 | --- | --- | --- |
-| x64 · .exe installer | [`gridiron-0.1.0-windows-x86_64-setup.exe`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.0/gridiron-0.1.0-windows-x86_64-setup.exe) | 2.0 MB |
+| x64 · .exe installer | [`gridiron-0.1.1-windows-x86_64-setup.exe`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.1/gridiron-0.1.1-windows-x86_64-setup.exe) | 2.0 MB |
 | x64 · .zip archive | [`gridiron-windows-x86_64.zip`](https://github.com/stoatworks-labs/gridiron/releases/latest/download/gridiron-windows-x86_64.zip) | 1.9 MB |
 
 </details>
 
 All builds, checksums and release notes: [github.com/stoatworks-labs/gridiron/releases](https://github.com/stoatworks-labs/gridiron/releases).
 
-The Windows builds are unsigned, so SmartScreen warns once.
+macOS builds are signed and notarised and open normally. The Windows builds are unsigned, so SmartScreen warns once.
 
 <!-- downloads:end -->
 
@@ -158,13 +158,32 @@ ctest --test-dir build --output-on-failure
 `ctest` runs four suites: the arrangement, the geometry, the decoding, and — on
 macOS — a real render in a headless GL context.
 
+## Diagnostics
+
+Every way this plugin can fail looks the same from your side — a black clip —
+and none of them puts a message anywhere in the host. The log is where it says
+which one happened:
+
+    macOS     ~/Library/Logs/gridiron/gridiron.YYYY-MM-DD.log
+    Windows   %LOCALAPPDATA%\gridiron\logs\gridiron.YYYY-MM-DD.log
+
+There is nothing to switch on and no command to run. It records the folder path
+as the host handed it over, how many files were found and how many survived
+decoding, the size of the texture array and whether the GPU took it, your
+graphics driver, and which unit the host's clock turned out to be in. If you are
+filing a bug, this is the single most useful thing to attach.
+
 ## Status
 
-**v0.1.0, unreleased. Never run in Resolume.** Verified as far as an offline
-harness and `oxbow selftest` can reach: the bundle registers, instantiates,
-loads a folder and draws a wall, a hero block, per-cell line art and a turning
-cube, with no GL errors. What no harness can tell you is how it behaves in a
-real composition on real hardware.
+**v0.1.0 released, and being run in Resolume by other people for the first
+time.** Verified as far as an offline harness and `oxbow selftest` can reach:
+the bundle registers, instantiates, loads a folder and draws a wall, a hero
+block, per-cell line art and a turning cube, with no GL errors, and holds the
+wall on screen under every motion control ten minutes into a composition.
+
+What no harness here can tell you is how it behaves in a real composition on
+real hardware — and the pixel-level suite is macOS-only, so on Windows that
+gap is wider. Bug reports with the log attached are read and acted on.
 
 ## Licence
 
