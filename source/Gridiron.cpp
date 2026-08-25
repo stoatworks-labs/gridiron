@@ -70,7 +70,7 @@ GridironPlugin::GridironPlugin()
 
 	SetParamInfo( PT_SEED, "Seed", FF_TYPE_INTEGER, 1.0f );
 	SetParamRange( PT_SEED, 0.0f, 9999.0f );
-	SetParamInfo( PT_NO_ADJACENT, "No Adjacent Repeat", FF_TYPE_BOOLEAN, true );
+	SetParamInfo( PT_NO_ADJACENT, "Vary Neighbours", FF_TYPE_BOOLEAN, true );
 	SetParamInfo( PT_ASPECT_AWARE, "Respect Aspect", FF_TYPE_BOOLEAN, true );
 	SetParamInfo( PT_EQUAL_AIRTIME, "Equal Airtime", FF_TYPE_BOOLEAN, true );
 	for( unsigned int i = PT_SEED; i <= PT_EQUAL_AIRTIME; ++i )

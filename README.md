@@ -87,7 +87,10 @@ Four rules, in this priority order when they conflict:
    the seed until you like one, then leave it.
 2. **No adjacent repeat.** A logo never touches a copy of itself. This is what
    makes a small pack over a big wall read as designed rather than looped, and
-   it is the first thing an eye picks out of a photograph.
+   it is the first thing an eye picks out of a photograph. The control is
+   **Vary Neighbours**, on by default. It does not promise every logo is
+   unique — with fewer logos than cells it cannot be — only that no two
+   touching cells carry the same one.
 3. **Equal airtime.** Every logo is on screen for the same total *time* per
    cycle — not the same number of placements. Sponsors pay for parity.
 4. **Aspect-aware.** A long wordmark is given two cells rather than being

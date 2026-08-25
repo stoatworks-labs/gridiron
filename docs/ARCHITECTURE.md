@@ -94,7 +94,8 @@ not load.
 Three rules, all three chosen deliberately:
 
 - **No adjacent repeat.** A logo never touches a copy of itself horizontally or
-  vertically. This is what real press walls do, and it is the rule that makes a
+  vertically. Exposed as the **Vary Neighbours** control (`PT_NO_ADJACENT`);
+  the identifier keeps the rule's name, the control says what an operator sees. This is what real press walls do, and it is the rule that makes a
   repeated small pack look designed rather than looped.
 - **Aspect-aware.** Wide logos land in wide or spanned cells, square logos in
   square cells, rather than being letterboxed into a slot that fights them.
