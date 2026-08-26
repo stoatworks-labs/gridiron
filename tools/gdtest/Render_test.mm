@@ -138,6 +138,7 @@ int main( int argc, char** argv )
 			break;
 	}
 	const int lit = LitPixels( px );
+	const int lit0 = lit;// baseline the scroll checks are measured against
 	Check( lit > 0, "something is on screen once the folder has loaded" );
 	printf( "    %d lit pixels of %d after %d frames\n", lit, kW * kH, spins + 1 );
 
@@ -236,6 +237,101 @@ int main( int argc, char** argv )
 		for( size_t i = 0; i < c.size(); i += 4 )
 			moved += std::abs( static_cast< int >( c[ i ] ) - static_cast< int >( d[ i ] ) );
 		Check( moved > 10000, "and the slices are turning" );
+	}
+
+	printf( "whole-grid scroll wraps instead of leaving\n" );
+	{
+		// The wall used to be translated by `scroll * timeSeconds` with no wrap
+		// and in world units rather than cells, so any scroll off centre slid
+		// the whole step-and-repeat out of the orthographic box within a second
+		// or two and it never came back. Every value below returned an empty
+		// frame before the wrap landed.
+		plugin.SetFloatParameter( PT_MODE, 0.0f );// Static
+		plugin.SetFloatParameter( PT_TWINKLE, 0.0f );
+		plugin.SetFloatParameter( PT_FADE, 0.0f );
+
+		auto litAt = [ & ]( double startMs ) {
+			std::vector< uint8_t > out;
+			for( int i = 0; i < 6; ++i )
+				out = RenderAt( plugin, target, startMs + i * 20.0 );
+			return out;
+		};
+
+		const float ends[] = { 0.0f, 0.25f, 0.75f, 1.0f };
+		for( float v : ends )
+		{
+			plugin.SetFloatParameter( PT_SCROLL_Y, 0.5f );
+			plugin.SetFloatParameter( PT_SCROLL_X, v );
+			// Ten minutes in. Composition time is absolute, so "it survived the
+			// first two seconds" proves nothing about a real show.
+			const int lit = LitPixels( litAt( 600000.0 ) );
+			Check( lit > lit0 / 4, "ScrollX holds the wall on screen ten minutes in" );
+			printf( "    ScrollX %.2f -> %d lit\n", v, lit );
+		}
+		plugin.SetFloatParameter( PT_SCROLL_X, 0.5f );
+		for( float v : ends )
+		{
+			plugin.SetFloatParameter( PT_SCROLL_Y, v );
+			const int lit = LitPixels( litAt( 600000.0 ) );
+			Check( lit > lit0 / 4, "ScrollY holds the wall on screen ten minutes in" );
+			printf( "    ScrollY %.2f -> %d lit\n", v, lit );
+		}
+
+		// ...and it is genuinely scrolling, not merely pinned in place.
+		plugin.SetFloatParameter( PT_SCROLL_Y, 0.5f );
+		plugin.SetFloatParameter( PT_SCROLL_X, 0.8f );
+		auto s1 = litAt( 300000.0 );
+		auto s2 = litAt( 300500.0 );
+		long moved = 0;
+		for( size_t i = 0; i < s1.size(); i += 4 )
+			moved += std::abs( static_cast< int >( s1[ i ] ) - static_cast< int >( s2[ i ] ) );
+		Check( moved > 10000, "and the wall is actually moving" );
+		printf( "    red-channel delta between two moments %ld\n", moved );
+
+		plugin.SetFloatParameter( PT_SCROLL_X, 0.5f );
+	}
+
+	printf( "a host that leaves a GL error pending\n" );
+	{
+		// gridiron#1: black in Resolume, first outside user, first hour.
+		//
+		// Atlas::Upload asked glGetError() whether its glTexImage3D had worked.
+		// glGetError reports the oldest unreported error in the queue, not the
+		// one the last call raised -- so an error the *host* left behind reads
+		// as "the GPU refused the array". The atlas is dropped, ProcessOpenGL
+		// returns early for ever after, and the operator gets a black clip with
+		// no way to tell it from an empty folder.
+		//
+		// Nothing in this file could catch that before, because a test owns its
+		// context and never litters in it. Only a host does. So this case
+		// litters deliberately.
+		GridironPlugin dirty;
+		FFGLViewportStruct dvp = { 0, 0, kW, kH };
+		Check( dirty.InitGL( &dvp ) == FF_SUCCESS, "InitGL succeeds on a dirty context" );
+		dirty.SetTextParameter( PT_FOLDER_FILE, anyFile.c_str() );
+
+		std::vector< uint8_t > dpx;
+		for( int i = 0; i < 400; ++i )
+		{
+			glEnable( (GLenum)0x1234 );// GL_INVALID_ENUM, left pending, as a host would
+			dpx = RenderAt( dirty, target, 0.0 );
+			if( LitPixels( dpx ) > 0 )
+				break;
+		}
+		const int dirtyLit = LitPixels( dpx );
+		Check( dirtyLit > 0, "the wall still draws" );
+		printf( "    %d lit pixels\n", dirtyLit );
+
+		// The About field is the only diagnostic gridiron has. If the upload was
+		// wrongly abandoned it says so there, so assert on the words too -- a
+		// future refactor could make this draw for some other reason.
+		const std::string about = dirty.GetTextParameter( PT_ABOUT_TEXT );
+		Check( about.find( "refused" ) == std::string::npos, "and does not claim the GPU refused the array" );
+
+		dirty.DeInitGL();
+		while( glGetError() != GL_NO_ERROR )
+		{
+		}
 	}
 
 	printf( "teardown\n" );

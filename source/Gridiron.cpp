@@ -4,6 +4,10 @@
 #include <cmath>
 #include <cstring>
 
+#include "Diag.h"
+
+#include <atomic>
+
 namespace gridiron
 {
 namespace
@@ -24,6 +28,10 @@ int ToOption( float v, int count )
 
 GridironPlugin::GridironPlugin()
 {
+	static std::atomic< int > sNextInstance{ 1 };
+	mInstanceId = sNextInstance.fetch_add( 1 );
+	mTag        = "[" + std::to_string( mInstanceId ) + "] ";
+
 	SetMinInputs( 0 );
 	SetMaxInputs( 0 );
 
@@ -177,9 +185,22 @@ FFResult GridironPlugin::InitGL( const FFGLViewportStruct* vp )
 	if( mGlReady )
 		return CFFGLPlugin::InitGL( vp );
 
+	diag::init();
+
+	// The driver, on the line above whatever fails next. A shader that compiles
+	// on one machine and not on another is a driver answer, not a source answer,
+	// and the reporter cannot be expected to know to send this.
+	auto glString = []( GLenum name ) {
+		const GLubyte* s = glGetString( name );
+		return s != nullptr ? std::string( reinterpret_cast< const char* >( s ) ) : std::string( "?" );
+	};
+	diag::info( mTag + "GL vendor=" + glString( GL_VENDOR ) + " renderer=" + glString( GL_RENDERER ) +
+				" version=" + glString( GL_VERSION ) );
+
 	if( !mRenderer.InitGL() )
 	{
 		mNote = mRenderer.Note();
+		diag::error( mTag + "InitGL failed: " + mNote );
 		return FF_FAIL;
 	}
 	mGlReady = true;
@@ -226,9 +247,21 @@ FFResult GridironPlugin::SetTextParameter( unsigned int index, const char* value
 {
 	const std::string v = value != nullptr ? value : "";
 	if( index == PT_FOLDER_FILE )
+	{
+		// Verbatim, quoted, and only when it changes. The path is the single
+		// most useful thing in a "points at the folder, gets nothing" report,
+		// and the interesting failures are all things that survive a glance --
+		// a trailing space, a UNC prefix, a separator the host rewrote.
+		if( v != mFolderFile )
+			diag::info( mTag + "Logos parameter set to \"" + v + "\"" );
 		mFolderFile = v;
+	}
 	else if( index == PT_FOLDER_PATH )
+	{
+		if( v != mFolderPath )
+			diag::info( mTag + "Folder Override set to \"" + v + "\"" );
 		mFolderPath = v;
+	}
 	else if( index == PT_ABOUT_TEXT )
 		mAboutText = v;
 	else
@@ -272,6 +305,7 @@ void GridironPlugin::PollLoader()
 			// operator is likely to be on. Re-rasterising per cell size would be
 			// sharper still and would re-upload the whole folder on every drag
 			// of a window edge.
+			diag::info( mTag + "reading folder around \"" + wanted + "\"" );
 			mLoader.Start( wanted, 512 );
 			mNote = "loading...";
 		}
@@ -289,6 +323,15 @@ void GridironPlugin::PollLoader()
 		mImages        = mLoader.Take();
 		mUploadPending = true;
 		mNote          = mLoader.Note();
+
+		// The loader's note already carries the counts and every per-file
+		// complaint -- an unreadable file, a GIF that would not decode, an SVG
+		// whose sponsor name is live text and will not draw. All of it is
+		// invisible in the host, so all of it goes in the log.
+		if( mImages.empty() )
+			diag::warn( mTag + "folder loaded but nothing usable came out of it: " + mNote );
+		else
+			diag::info( mTag + "folder loaded: " + mNote );
 	}
 
 	if( mUploadPending && mGlReady )
@@ -296,7 +339,16 @@ void GridironPlugin::PollLoader()
 		mAtlas.Upload( mImages );
 		mUploadPending = false;
 		if( !mAtlas.Valid() )
+		{
 			mNote += " -- " + mAtlas.Note();
+			// The gridiron#1 failure. It is terminal until the folder changes
+			// or Reload is pressed, and it is invisible, so it is an error.
+			diag::error( mTag + "atlas upload failed, the wall will stay black: " + mAtlas.Note() );
+		}
+		else
+		{
+			diag::info( mTag + "atlas uploaded: " + mAtlas.Note() );
+		}
 		// Force a schedule rebuild: the logo count has almost certainly changed.
 		mScheduleKey = ScheduleKey{};
 	}
@@ -350,11 +402,29 @@ FFResult GridironPlugin::ProcessOpenGL( ProcessOpenGLStruct* pGL )
 
 	mClock.Tick( mHostTime, mHostTimeSeen );
 
+	// State the unit outright rather than leaving it to be inferred. The fleet
+	// has twice diagnosed a thousand-times-fast plugin by reading source when
+	// one line of log would have done it.
+	diag::stateChanged( mTag + "clock", mTag + "host clock is " + mClock.Unit() );
+
 	PollLoader();
 	RebuildScheduleIfNeeded();
 
 	if( !mAtlas.Valid() || mSchedule.steps.empty() )
+	{
+		// Every one of these is a black clip in the host and they are not
+		// distinguishable from outside. `stateChanged` means an hour of black
+		// costs one line rather than 180,000.
+		diag::stateChanged( mTag + "draw", mTag + "drawing nothing: " +
+										( mLoadedFolder.empty()  ? "no folder picked yet"
+										  : !mAtlas.Valid()      ? "the atlas is not loaded -- see the line above this one"
+																 : "the schedule came out empty" ) );
 		return FF_SUCCESS;// nothing to draw is not a failure
+	}
+
+	diag::stateChanged( mTag + "draw", mTag + "drawing " + std::to_string( mAtlas.LayerCount() ) + " logos on a " +
+									std::to_string( static_cast< int >( mParams[ PT_COLUMNS ] + 0.5f ) ) + "x" +
+									std::to_string( static_cast< int >( mParams[ PT_ROWS ] + 0.5f ) ) + " grid" );
 
 	const int width  = static_cast< int >( currentViewport.width );
 	const int height = static_cast< int >( currentViewport.height );

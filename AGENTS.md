@@ -8,9 +8,25 @@ list of fleet traps this plugin is known to be walking into.
 
 ## Status
 
-v0.1.0, unreleased, **never run in Resolume**. Builds on macOS; `ctest` runs four
-suites and `oxbow selftest` confirms the bundle registers, instantiates and
-renders. Windows and Linux have not been built.
+v0.1.0 **released** on 2026-08-24, and in other people's hands. Builds on macOS;
+`ctest` runs four suites and `oxbow selftest` confirms the bundle registers,
+instantiates and renders. Windows and Linux are built by CI only and have never
+been built or run locally.
+
+**The Windows binary had never been run by anyone when it shipped.** The first
+outside report (gridiron#1) was a black wall in Resolume on Windows 11, and it
+arrived with no log because there was no logging. Two real defects came out of
+chasing it, both now fixed and both covered in `gdtest_render`:
+
+- `Atlas::Upload` read a GL error the *host* had left in the queue as its own
+  failure and abandoned the atlas for the session. A plugin must drain the queue
+  before it asks whether its own call worked.
+- Whole-grid scroll translated by `scroll * timeSeconds` with no wrap, in world
+  units rather than cells. Any scroll off centre slid the wall out of frame
+  within seconds and it never returned.
+
+`Render_test.mm` is Objective-C++ against CGL, so **there is no pixel-level
+coverage on Windows at all**. Weigh that before trusting a green run.
 
 ## `oxbow selftest` will always report FAIL, and that is correct
 

@@ -102,6 +102,13 @@ private:
 	std::string mLoadedFolder;///< what the loader was last pointed at
 	bool        mUploadPending = false;
 
+	/// Which gridiron this is, within the host process. An operator can have
+	/// several clips of this plugin in one composition, and without a tag their
+	/// lines interleave in the log into one account of a plugin that appears to
+	/// contradict itself.
+	int         mInstanceId = 0;
+	std::string mTag;///< "[1] ", prefixed to every instance-scoped log line
+
 	bool   mGlReady      = false;
 	bool   mHostTimeSeen = false;
 	double mHostTime     = 0.0;
