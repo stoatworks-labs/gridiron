@@ -14,6 +14,14 @@ constexpr float kHalfPi = kPi * 0.5f;
 
 float Fract( float x ) { return x - std::floor( x ); }
 
+/// Wrap `v` into [-period/2, +period/2). What makes a step-and-repeat repeat.
+float WrapCentred( float v, float period )
+{
+	if( period <= 0.0f )
+		return v;
+	return v - period * std::floor( v / period + 0.5f );
+}
+
 /// Ease in and out of a quarter turn. A slice that starts and stops abruptly
 /// reads as a glitch; this is the difference between a cube being turned and a
 /// cube being teleported.
@@ -217,16 +225,26 @@ LayoutResult BuildLayout( const Schedule& schedule,
 		out.projection    = Ortho( -halfW, halfW, -0.5f, 0.5f, -10.0f, 10.0f );
 	}
 
-	// Whole-grid scroll and rotation live in the view matrix, which is what
-	// makes them cost nothing per cell and behave identically flat or on a cube.
-	{
-		Mat4 grid = Mat4::Identity();
-		if( options.gridRot != 0.0f )
-			grid = RotateZ( options.gridRot * timeSeconds ) * grid;
-		if( options.scrollX != 0.0f || options.scrollY != 0.0f )
-			grid = Translate( options.scrollX * timeSeconds, options.scrollY * timeSeconds, 0.0f ) * grid;
-		out.view = out.view * grid;
-	}
+	// Whole-grid rotation lives in the view matrix, which is what makes it cost
+	// nothing per cell and behave identically flat or on a cube.
+	//
+	// Scroll used to live here too, as `Translate( scrollX * timeSeconds, ... )`.
+	// That was wrong twice over and it blanked the wall:
+	//
+	//   - **It never wrapped.** `timeSeconds` is absolute composition time, so
+	//     the translation grew without bound. A step-and-repeat is by definition
+	//     a repeating tile; scrolling one has to bring the far side back round.
+	//     Instead the wall slid out of the orthographic box and stayed out.
+	//   - **It was in the wrong unit.** `Scroll()` is documented as cells per
+	//     second and returns up to +/-4, but a view-space translate is in world
+	//     units, where the whole wall is one unit tall. "Four cells a second"
+	//     was really four *wall heights* a second, and the wall was gone inside
+	//     a quarter of a second.
+	//
+	// Scroll is now applied per cell, below, where the cell size is known and
+	// the position can be wrapped.
+	if( options.gridRot != 0.0f )
+		out.view = out.view * RotateZ( options.gridRot * timeSeconds );
 
 	const bool cube = ( options.mode == Mode::Rubik );
 
@@ -280,6 +298,10 @@ LayoutResult BuildLayout( const Schedule& schedule,
 	}
 
 	const Step& step = schedule.steps[ static_cast< size_t >( globalStep ) ];
+
+	// Wrap-around copies of the cells at the wall's edges, appended after the
+	// wall itself so the draw order is still front-to-back within each.
+	std::vector< CellTransform > ghosts;
 
 	for( const Placement& p : step.cells )
 	{
@@ -426,8 +448,60 @@ LayoutResult BuildLayout( const Schedule& schedule,
 					}
 			}
 
-			c.model = Translate( cx, cy, 0.0f ) *
-					  Scale( cellW * spanW * ( 1.0f - pad ), cellH * spanH * ( 1.0f - pad ), 1.0f );
+			// Whole-grid scroll, in cells per second, wrapped into the wall.
+			//
+			// The wall is `gridColumns` x `gridRows` cells and tiles the output
+			// exactly, so its period is the wall itself. Wrapping a cell centre
+			// modulo that period sends the cell that leaves one side back in at
+			// the other -- the same idea as the slot machine's column wrap,
+			// applied to both axes and to the whole grid at once.
+			if( options.scrollX != 0.0f )
+				cx = WrapCentred( cx + options.scrollX * cellW * timeSeconds, wallW );
+			if( options.scrollY != 0.0f )
+				cy = WrapCentred( cy + options.scrollY * cellH * timeSeconds, wallH );
+
+			const float scaleX = cellW * spanW * ( 1.0f - pad );
+			const float scaleY = cellH * spanH * ( 1.0f - pad );
+
+			c.model = Translate( cx, cy, 0.0f ) * Scale( scaleX, scaleY, 1.0f );
+
+			// Wrapping alone leaves a hole. The cells cover exactly one wall and
+			// no more, so the moment they shift by any fraction of a cell there
+			// is that much bare canvas at the trailing edge -- which on a
+			// sponsor board is a strip of nothing marching across the screen.
+			//
+			// So a cell near an edge is drawn a second time one whole wall away,
+			// where it fills that hole. The copy is clipped by the projection
+			// when it is not needed, which is cheaper than working out whether
+			// it is.
+			if( options.scrollX != 0.0f || options.scrollY != 0.0f )
+			{
+				for( int gy = -1; gy <= 1; ++gy )
+				{
+					for( int gx = -1; gx <= 1; ++gx )
+					{
+						if( gx == 0 && gy == 0 )
+							continue;// the cell itself, already pushed below
+						if( gx != 0 && options.scrollX == 0.0f )
+							continue;
+						if( gy != 0 && options.scrollY == 0.0f )
+							continue;
+
+						const float gcx = cx + static_cast< float >( gx ) * wallW;
+						const float gcy = cy + static_cast< float >( gy ) * wallH;
+
+						// Only if some part of it lands on the canvas.
+						if( std::abs( gcx ) - scaleX * 0.5f > wallW * 0.5f )
+							continue;
+						if( std::abs( gcy ) - scaleY * 0.5f > wallH * 0.5f )
+							continue;
+
+						CellTransform g = c;
+						g.model         = Translate( gcx, gcy, 0.0f ) * Scale( scaleX, scaleY, 1.0f );
+						ghosts.push_back( g );
+					}
+				}
+			}
 		}
 
 		// ---- which frame, for an animated logo -----------------------------
@@ -448,6 +522,8 @@ LayoutResult BuildLayout( const Schedule& schedule,
 
 		out.cells.push_back( c );
 	}
+
+	out.cells.insert( out.cells.end(), ghosts.begin(), ghosts.end() );
 
 	return out;
 }

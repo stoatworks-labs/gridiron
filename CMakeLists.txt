@@ -76,6 +76,8 @@ add_library(gridiron_core OBJECT
     source/Clock.cpp
     source/SvgLib.h
     source/SvgLib.cpp
+    source/Diag.h
+    source/Diag.cpp
     source/Library.h
     source/Library.cpp
     source/Fill.h

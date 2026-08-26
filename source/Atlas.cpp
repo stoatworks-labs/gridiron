@@ -99,6 +99,18 @@ bool Atlas::Upload( const std::vector< Image >& images )
 		layers = static_cast< int >( maxLayers );
 	}
 
+	// Drain whatever the host left in the queue before asking the question.
+	// glGetError reports the *oldest* unreported error, not the one the previous
+	// call raised, and a host is under no obligation to hand the plugin a clean
+	// context -- Resolume routinely does not. Without this, one stale
+	// GL_INVALID_ENUM from somewhere else in the composition is read as "the GPU
+	// refused the array", the atlas is thrown away, and the wall is black for
+	// the rest of the session with nothing in front of the operator to say why.
+	// That is a black screen caused entirely by another plugin's litter.
+	while( glGetError() != GL_NO_ERROR )
+	{
+	}
+
 	glGenTextures( 1, &mTexture );
 	if( mTexture == 0 )
 	{
@@ -109,11 +121,18 @@ bool Atlas::Upload( const std::vector< Image >& images )
 	glBindTexture( GL_TEXTURE_2D_ARRAY, mTexture );
 	glTexImage3D( GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, mLayerSize, mLayerSize, layers, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr );
 
-	if( glGetError() != GL_NO_ERROR )
+	const GLenum uploadError = glGetError();
+	if( uploadError != GL_NO_ERROR )
 	{
+		// Read the size *before* Release(), which zeroes it. Reporting it
+		// afterwards said "the GPU refused a 0px array", which is not a size any
+		// GPU was ever asked for and sends the reader looking for the wrong bug.
+		const int askedSize = mLayerSize;
 		glBindTexture( GL_TEXTURE_2D_ARRAY, 0 );
 		Release();
-		mNote = "the GPU refused a " + std::to_string( mLayerSize ) + "px array of " + std::to_string( layers ) + " layers";
+		mNote = "the GPU refused a " + std::to_string( askedSize ) + "px array of " + std::to_string( layers ) +
+				" layers (" + std::to_string( ( static_cast< size_t >( askedSize ) * askedSize * 4 * layers ) >> 20 ) +
+				" MB, GL error 0x" + std::to_string( static_cast< unsigned >( uploadError ) ) + ")";
 		return false;
 	}
 
