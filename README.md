@@ -22,15 +22,15 @@ FFGL source plugin for Resolume Arena and Avenue.
 
 ## Download
 
-**[v0.1.1](https://github.com/stoatworks-labs/gridiron/releases/tag/v0.1.1)** — prebuilt for macOS and Windows. Pick your platform:
+**[v0.1.2](https://github.com/stoatworks-labs/gridiron/releases/tag/v0.1.2)** — prebuilt for macOS and Windows. Pick your platform:
 
 <details>
 <summary><b>macOS</b> — Universal (Apple Silicon + Intel)</summary>
 
 | Build | Download | Size |
 | --- | --- | --- |
-| Universal (Apple Silicon + Intel) · .dmg disk image | [`gridiron-0.1.1-macos-universal.dmg`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.1/gridiron-0.1.1-macos-universal.dmg) | 2.2 MB |
-| Universal (Apple Silicon + Intel) · .zip archive | [`gridiron-macos-universal.zip`](https://github.com/stoatworks-labs/gridiron/releases/latest/download/gridiron-macos-universal.zip) | 2.1 MB |
+| Universal (Apple Silicon + Intel) · .dmg disk image | [`gridiron-0.1.2-macos-universal.dmg`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.2/gridiron-0.1.2-macos-universal.dmg) | 2.2 MB |
+| Universal (Apple Silicon + Intel) · .zip archive | [`gridiron-macos-universal.zip`](https://github.com/stoatworks-labs/gridiron/releases/latest/download/gridiron-macos-universal.zip) | 2.2 MB |
 
 </details>
 
@@ -39,8 +39,8 @@ FFGL source plugin for Resolume Arena and Avenue.
 
 | Build | Download | Size |
 | --- | --- | --- |
-| x64 · .exe installer | [`gridiron-0.1.1-windows-x86_64-setup.exe`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.1/gridiron-0.1.1-windows-x86_64-setup.exe) | 2.0 MB |
-| x64 · .zip archive | [`gridiron-windows-x86_64.zip`](https://github.com/stoatworks-labs/gridiron/releases/latest/download/gridiron-windows-x86_64.zip) | 1.9 MB |
+| x64 · .exe installer | [`gridiron-0.1.2-windows-x86_64-setup.exe`](https://github.com/stoatworks-labs/gridiron/releases/download/v0.1.2/gridiron-0.1.2-windows-x86_64-setup.exe) | 2.0 MB |
+| x64 · .zip archive | [`gridiron-windows-x86_64.zip`](https://github.com/stoatworks-labs/gridiron/releases/latest/download/gridiron-windows-x86_64.zip) | 2.0 MB |
 
 </details>
 
