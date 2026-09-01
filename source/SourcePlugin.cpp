@@ -22,7 +22,7 @@ static CFFGLPluginInfo PluginInfo(
 	2,                                                       // API major
 	1,                                                       // API minor
 	0,                                                       // plugin major
-	1,                                                       // plugin minor
+	2,                                                       // plugin minor
 	FF_SOURCE,                                               // a generator: no input
 	"Animated step-and-repeat built from a folder of logos", // description
 	"Stoatworks Labs" );
