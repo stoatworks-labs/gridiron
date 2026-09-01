@@ -263,7 +263,17 @@ FFResult GridironPlugin::SetTextParameter( unsigned int index, const char* value
 		mFolderPath = v;
 	}
 	else if( index == PT_ABOUT_TEXT )
-		mAboutText = v;
+	{
+		// Accepted and DROPPED. FFGL has no read-only text parameter, so the
+		// host draws this one as an editable field and there is no way to stop
+		// an operator typing into it -- but adopting what they typed is what
+		// made the edit survive into the saved composition. The note below is
+		// ours to write; GetTextParameter rebuilds it from mNote on every read.
+		//
+		// Returning FF_SUCCESS rather than FF_FAIL is deliberate: the base
+		// class fails an unknown text parameter, and a host that sets one
+		// during instantiation treats that as the plugin refusing to load.
+	}
 	else
 		return FF_FAIL;
 	return FF_SUCCESS;
