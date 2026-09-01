@@ -14,7 +14,9 @@
 #include <thread>
 #include <vector>
 
+#include "Atlas.h"
 #include "Gridiron.h"
+#include "Library.h"
 
 using namespace gridiron;
 
@@ -289,6 +291,62 @@ int main( int argc, char** argv )
 		printf( "    red-channel delta between two moments %ld\n", moved );
 
 		plugin.SetFloatParameter( PT_SCROLL_X, 0.5f );
+	}
+
+	printf( "the budgeted upload builds the same atlas as the one-shot one\n" );
+	{
+		// gridiron#4: 190 logos uploaded in one call locked Resolume solid for
+		// about a minute. The upload is now spread over frames, and the thing
+		// worth proving is that spreading it changes NOTHING about the result --
+		// a budget that split a logo across two calls, or a scratch buffer left
+		// dirty between them, would show up as a wall that is subtly wrong
+		// rather than as a failure.
+		std::vector< gridiron::Image > images;
+		for( const std::string& f : gridiron::ScanFolder( anyFile ) )
+		{
+			gridiron::Image img = gridiron::Decode( f, 512 );
+			if( img.Valid() )
+				images.push_back( std::move( img ) );
+		}
+		Check( !images.empty(), "the fixture folder decoded" );
+
+		auto readBack = []( gridiron::Atlas& a ) {
+			std::vector< uint8_t > bytes( static_cast< size_t >( a.LayerSize() ) * a.LayerSize() * 4 * a.LayerCount() );
+			glBindTexture( GL_TEXTURE_2D_ARRAY, a.Texture() );
+			glGetTexImage( GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, GL_UNSIGNED_BYTE, bytes.data() );
+			glBindTexture( GL_TEXTURE_2D_ARRAY, 0 );
+			return bytes;
+		};
+
+		gridiron::Atlas oneShot;
+		Check( oneShot.Upload( images ), "Upload() succeeds" );
+		const std::vector< uint8_t > wanted = readBack( oneShot );
+
+		gridiron::Atlas budgeted;
+		Check( budgeted.Begin( images ), "Begin() succeeds" );
+
+		// The layout is built off these, and it is built before the pixels
+		// arrive -- so they have to be final the moment Begin() returns.
+		Check( budgeted.LayerCount() == oneShot.LayerCount(), "LayerCount is final after Begin" );
+		Check( budgeted.Logos().size() == oneShot.Logos().size(), "Logos are final after Begin" );
+		Check( budgeted.Uploading(), "and it knows it has not finished" );
+
+		// A budget of one pixel: the smallest possible, so this takes one step
+		// per layer and never more than one -- the "at least one a call" floor.
+		int steps = 0;
+		const int ceiling = budgeted.LayerCount() + 2;
+		while( steps < ceiling && !budgeted.Step( images, 1 ) )
+			++steps;
+		++steps;
+		Check( steps < ceiling, "Step() terminates" );
+		Check( steps == budgeted.LayerCount(), "one layer a step at the smallest budget" );
+		Check( !budgeted.Uploading(), "and it knows it has finished" );
+		printf( "    %d layers in %d steps\n", budgeted.LayerCount(), steps );
+
+		Check( readBack( budgeted ) == wanted, "byte for byte the same atlas" );
+
+		oneShot.Release();
+		budgeted.Release();
 	}
 
 	printf( "a host that leaves a GL error pending\n" );

@@ -53,7 +53,10 @@ void Atlas::Release()
 	}
 	mLayers    = 0;
 	mLayerSize = 0;
+	mUploaded  = 0;
 	mLogos.clear();
+	mScratch.clear();
+	mScratch.shrink_to_fit();
 }
 
 int ChooseLayerSize( int cellPixels )
@@ -64,7 +67,53 @@ int ChooseLayerSize( int cellPixels )
 	return size;
 }
 
+namespace
+{
+/// Where one image sits inside a square layer, keeping its aspect.
+///
+/// Pulled out of the upload loop because Begin() needs it for the geometry and
+/// Step() needs it for the blit, and the two computing it separately is a
+/// silent mis-registration waiting to happen -- the trim box would describe a
+/// rectangle the pixels are not in.
+struct LayerFit
+{
+	int dx = 0, dy = 0, dw = 0, dh = 0;
+};
+
+LayerFit PlaceIn( const Image& img, int layerSize )
+{
+	LayerFit p;
+	p.dw = layerSize;
+	p.dh = layerSize;
+
+	if( img.aspect >= 1.0f )
+		p.dh = std::max( 1, static_cast< int >( static_cast< float >( layerSize ) / img.aspect + 0.5f ) );
+	else
+		p.dw = std::max( 1, static_cast< int >( static_cast< float >( layerSize ) * img.aspect + 0.5f ) );
+
+	p.dw = std::min( p.dw, layerSize );
+	p.dh = std::min( p.dh, layerSize );
+
+	// The padding stays transparent, which is what makes bleeding harmless.
+	p.dx = ( layerSize - p.dw ) / 2;
+	p.dy = ( layerSize - p.dh ) / 2;
+	return p;
+}
+} // namespace
+
 bool Atlas::Upload( const std::vector< Image >& images )
+{
+	if( !Begin( images ) )
+		return false;
+
+	// No budget: one call, everything. The plugin never takes this path.
+	while( !Step( images, static_cast< size_t >( -1 ) ) )
+	{
+	}
+	return true;
+}
+
+bool Atlas::Begin( const std::vector< Image >& images )
 {
 	Release();
 	mNote.clear();
@@ -141,43 +190,25 @@ bool Atlas::Upload( const std::vector< Image >& images )
 	// breaking if the format ever changes.
 	glPixelStorei( GL_UNPACK_ALIGNMENT, 4 );
 
-	std::vector< uint8_t > layer( static_cast< size_t >( mLayerSize ) * mLayerSize * 4, 0 );
-
+	// Every logo's geometry, up front. This is arithmetic, not pixels, so it
+	// costs nothing worth budgeting -- and doing it here means LayerCount() and
+	// Logos() are final the moment Begin() returns, so the layout is built once
+	// and the wall can draw while the pixels are still arriving.
 	for( int i = 0; i < layers; ++i )
 	{
 		const Image& img = images[ static_cast< size_t >( i ) ];
 
-		std::fill( layer.begin(), layer.end(), static_cast< uint8_t >( 0 ) );
-
-		// Fit the artwork into the layer, keeping its aspect. The padding stays
-		// transparent, which is what makes bleeding harmless.
-		int dw = mLayerSize, dh = mLayerSize;
-		if( img.aspect >= 1.0f )
-			dh = std::max( 1, static_cast< int >( static_cast< float >( mLayerSize ) / img.aspect + 0.5f ) );
-		else
-			dw = std::max( 1, static_cast< int >( static_cast< float >( mLayerSize ) * img.aspect + 0.5f ) );
-		dw = std::min( dw, mLayerSize );
-		dh = std::min( dh, mLayerSize );
-
-		const int dx = ( mLayerSize - dw ) / 2;
-		const int dy = ( mLayerSize - dh ) / 2;
-
-		if( !img.frames.empty() )
-			Blit( img.frames[ 0 ].rgba.data(), img.width, img.height, layer, mLayerSize, dx, dy, dw, dh );
-
-		glTexSubImage3D( GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, mLayerSize, mLayerSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, layer.data() );
-
-		// The logo's geometry, expressed against the *layer* rather than against
-		// the original file -- which is what the shader will be sampling.
 		Logo l;
 		l.index  = i;
 		l.name   = img.name;
 		l.aspect = img.aspect;
 
-		const float fx = static_cast< float >( dw ) / static_cast< float >( mLayerSize );
-		const float fy = static_cast< float >( dh ) / static_cast< float >( mLayerSize );
-		const float ox = static_cast< float >( dx ) / static_cast< float >( mLayerSize );
-		const float oy = static_cast< float >( dy ) / static_cast< float >( mLayerSize );
+		const LayerFit p = PlaceIn( img, mLayerSize );
+
+		const float fx = static_cast< float >( p.dw ) / static_cast< float >( mLayerSize );
+		const float fy = static_cast< float >( p.dh ) / static_cast< float >( mLayerSize );
+		const float ox = static_cast< float >( p.dx ) / static_cast< float >( mLayerSize );
+		const float oy = static_cast< float >( p.dy ) / static_cast< float >( mLayerSize );
 
 		// The trim box was measured on the file; move it into layer space.
 		l.trimX0        = ox + img.trimX0 * fx;
@@ -189,20 +220,95 @@ bool Atlas::Upload( const std::vector< Image >& images )
 		mLogos.push_back( l );
 	}
 
-	glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
-	glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	// Clamp, not repeat. A logo that repeats at its layer edge draws a sliver of
-	// its own opposite side along the cell border.
-	glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-	glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-	glGenerateMipmap( GL_TEXTURE_2D_ARRAY );
-
 	glBindTexture( GL_TEXTURE_2D_ARRAY, 0 );
 
-	mLayers = layers;
+	mLayers   = layers;
+	mUploaded = 0;
+	mScratch.assign( static_cast< size_t >( mLayerSize ) * mLayerSize * 4, 0 );
+
 	if( mNote.empty() )
 		mNote = std::to_string( layers ) + " logos at " + std::to_string( mLayerSize ) + "px";
 	return true;
+}
+
+bool Atlas::Step( const std::vector< Image >& images, size_t pixelBudget )
+{
+	if( mTexture == 0 || mUploaded >= mLayers )
+		return true;
+
+	// The caller is supposed to pass the same vector it gave Begin(). If it did
+	// not, indexing it would read off the end -- say so and stop rather than
+	// corrupt the wall or the process.
+	if( images.size() < static_cast< size_t >( mLayers ) )
+	{
+		mNote = "the image list changed under the upload";
+		Release();
+		return true;
+	}
+
+	const size_t perLayer = static_cast< size_t >( mLayerSize ) * mLayerSize;
+
+	glBindTexture( GL_TEXTURE_2D_ARRAY, mTexture );
+	// glTexSubImage3D reads tightly packed rows; the default alignment of 4
+	// happens to be right for RGBA8 but saying so costs nothing and stops this
+	// breaking if the format ever changes. Set per Step: a host is under no
+	// obligation to leave the pixel store where the last frame left it.
+	glPixelStorei( GL_UNPACK_ALIGNMENT, 4 );
+
+	size_t spent = 0;
+	// At least one layer per call whatever the budget, or a layer bigger than
+	// the budget would never upload and the wall would stay blank for ever.
+	while( mUploaded < mLayers && ( spent == 0 || spent + perLayer <= pixelBudget ) )
+	{
+		const int i      = mUploaded;
+		const Image& img = images[ static_cast< size_t >( i ) ];
+
+		std::fill( mScratch.begin(), mScratch.end(), static_cast< uint8_t >( 0 ) );
+
+		const LayerFit p = PlaceIn( img, mLayerSize );
+		if( !img.frames.empty() )
+			Blit( img.frames[ 0 ].rgba.data(), img.width, img.height, mScratch, mLayerSize, p.dx, p.dy, p.dw, p.dh );
+
+		glTexSubImage3D( GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, mLayerSize, mLayerSize, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+		                 mScratch.data() );
+
+		++mUploaded;
+		spent += perLayer;
+	}
+
+	const bool done = mUploaded >= mLayers;
+	if( done )
+	{
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+		// Clamp, not repeat. A logo that repeats at its layer edge draws a sliver
+		// of its own opposite side along the cell border.
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+
+		// Once, at the end. Regenerating per Step would cost more than the
+		// uploads it is budgeting, and every mip built before the last layer
+		// landed would be thrown away anyway.
+		glGenerateMipmap( GL_TEXTURE_2D_ARRAY );
+
+		// The scratch layer is the size of one texture layer -- up to 16 MB at
+		// 2048px -- and nothing needs it again until the next folder.
+		mScratch.clear();
+		mScratch.shrink_to_fit();
+	}
+	else
+	{
+		// A partially filled array still has to be samplable, and
+		// GL_LINEAR_MIPMAP_LINEAR without mipmaps reads as incomplete on strict
+		// drivers -- which draws nothing at all rather than the logos so far.
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+		glTexParameteri( GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	}
+
+	glBindTexture( GL_TEXTURE_2D_ARRAY, 0 );
+	return done;
 }
 
 } // namespace gridiron

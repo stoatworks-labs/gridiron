@@ -58,9 +58,33 @@ public:
 	Atlas( const Atlas& )            = delete;
 	Atlas& operator=( const Atlas& ) = delete;
 
-	/// Upload `images` as a texture array. Replaces whatever was there.
-	/// Must be called with a current GL context.
+	/// Upload `images` as a texture array, all of it, in this call.
+	///
+	/// Kept for the harness and for any caller that genuinely wants it done
+	/// before it returns. **The plugin does not use this**: 190 logos is about a
+	/// minute of CPU resampling and texture upload, and doing that in one call
+	/// on the render thread is a minute with Resolume locked solid -- gridiron#4.
+	/// Equivalent to Begin() followed by Step() until it is done.
 	bool Upload( const std::vector< Image >& images );
+
+	/// Allocate the array and work out every logo's geometry, uploading no
+	/// pixels. Cheap: one allocation and some arithmetic per image.
+	///
+	/// After this, LayerCount() and Logos() are already final, so the layout can
+	/// be built and the wall can draw. Layers that have not been filled yet are
+	/// transparent, so the logos appear as they arrive rather than all at once.
+	bool Begin( const std::vector< Image >& images );
+
+	/// Fill up to `pixelBudget` pixels' worth of layers, in order.
+	///
+	/// Pass the SAME vector given to Begin(). Returns true once every layer has
+	/// been filled -- at which point the mipmaps are generated and the atlas is
+	/// finished. A budget in pixels rather than layers because the cost of a
+	/// layer is its area: at 512px sixteen layers cost what one costs at 2048.
+	bool Step( const std::vector< Image >& images, size_t pixelBudget );
+
+	/// Still filling. False before Begin() and after the last Step().
+	bool Uploading() const { return mTexture != 0 && mUploaded < mLayers; }
 
 	void Release();
 
@@ -80,6 +104,11 @@ private:
 	GLuint              mTexture   = 0;
 	int                 mLayers    = 0;
 	int                 mLayerSize = 0;
+	/// How many layers Step() has filled. Equal to mLayers once finished.
+	int                 mUploaded  = 0;
+	/// One scratch layer, kept between Step() calls rather than reallocated per
+	/// frame -- at 2048px that is a 16 MB allocation and this runs every frame.
+	std::vector< uint8_t > mScratch;
 	std::vector< Logo > mLogos;
 	std::string         mNote;
 };

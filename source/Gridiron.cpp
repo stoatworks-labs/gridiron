@@ -346,7 +346,10 @@ void GridironPlugin::PollLoader()
 
 	if( mUploadPending && mGlReady )
 	{
-		mAtlas.Upload( mImages );
+		// Begin() allocates the array and works out every logo's geometry, but
+		// uploads no pixels. The pixels arrive over the following frames, a
+		// budget at a time -- see the note on kUploadPixelBudget.
+		mAtlas.Begin( mImages );
 		mUploadPending = false;
 		if( !mAtlas.Valid() )
 		{
@@ -357,10 +360,35 @@ void GridironPlugin::PollLoader()
 		}
 		else
 		{
-			diag::info( mTag + "atlas uploaded: " + mAtlas.Note() );
+			// Allocated, not uploaded -- the pixels start arriving below.
+			diag::info( mTag + "atlas allocated: " + mAtlas.Note() );
 		}
 		// Force a schedule rebuild: the logo count has almost certainly changed.
+		// Safe to do now rather than when the pixels finish arriving, because
+		// Begin() has already settled LayerCount() and Logos().
 		mScheduleKey = ScheduleKey{};
+	}
+
+	// The pixels, a budget at a time.
+	//
+	// gridiron#4: a folder of 190 logos uploaded in one call took about a minute
+	// with Resolume locked solid -- a CPU resample and a texture upload per
+	// logo, all on the render thread, in one frame. Reading the folder was never
+	// the problem; that has always been on its own thread.
+	//
+	// The budget is in PIXELS because that is what the work costs: at 512px this
+	// is sixteen logos a frame, at 2048px it is one. Four megapixels is about
+	// 16 MB of RGBA a frame, which is a fraction of what the plugin's own
+	// rendering moves and is invisible next to a 60th of a second.
+	//
+	// Nothing waits for this. The layout is already built, and a layer that has
+	// not arrived is transparent, so the wall fills in over a few frames instead
+	// of the host stopping dead.
+	if( mGlReady && mAtlas.Uploading() )
+	{
+		constexpr size_t kUploadPixelBudget = 4u * 1024u * 1024u;
+		if( mAtlas.Step( mImages, kUploadPixelBudget ) )
+			diag::info( mTag + "atlas uploaded: " + mAtlas.Note() );
 	}
 }
 
