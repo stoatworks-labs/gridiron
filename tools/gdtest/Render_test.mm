@@ -293,6 +293,58 @@ int main( int argc, char** argv )
 		plugin.SetFloatParameter( PT_SCROLL_X, 0.5f );
 	}
 
+	printf( "cell fill makes the cube solid\n" );
+	{
+		// gridiron#6: a logo with alpha lets you see through the cube to the
+		// faces behind it, and the fixture folder is deliberately a mix of
+		// alpha and non-alpha artwork. What is asserted is the thing the
+		// reporter actually sees: with the fill on, every lit cell is OPAQUE.
+		plugin.SetFloatParameter( PT_MODE, 2.0f );// Rubik
+		plugin.SetFloatParameter( PT_CELL_FILL, 0.0f );
+
+		auto settle = [ & ]() {
+			std::vector< uint8_t > f;
+			for( int i = 0; i < 4; ++i )
+				f = RenderAt( plugin, target, 5000.0 + i * 20.0 );
+			return f;
+		};
+
+		auto partial = []( const std::vector< uint8_t >& px ) {
+			int n = 0;
+			for( size_t i = 3; i < px.size(); i += 4 )
+				if( px[ i ] > 8 && px[ i ] < 248 )
+					++n;
+			return n;
+		};
+
+		const std::vector< uint8_t > off = settle();
+		const int seeThrough = partial( off );
+		printf( "    fill off: %d part-transparent pixels\n", seeThrough );
+
+		plugin.SetFloatParameter( PT_CELL_FILL, 1.0f );// Solid Colour
+		const std::vector< uint8_t > solid = settle();
+		const int solidPartial = partial( solid );
+		printf( "    fill on:  %d part-transparent pixels\n", solidPartial );
+
+		Check( solidPartial < seeThrough, "a solid fill leaves fewer part-transparent pixels" );
+		Check( LitPixels( solid ) > LitPixels( off ), "and more of the cube is drawn" );
+
+		// Cube Faces has to differ from one flat colour, or the six sticker
+		// colours are not reaching the shader at all.
+		plugin.SetFloatParameter( PT_CELL_FILL, 2.0f );// Cube Faces
+		const std::vector< uint8_t > faces = settle();
+		long spread = 0;
+		for( size_t i = 0; i < faces.size(); i += 4 )
+			spread += std::abs( static_cast< int >( faces[ i ] ) - static_cast< int >( solid[ i ] ) );
+		Check( spread > 10000, "Cube Faces is not the same picture as one colour" );
+		printf( "    red-channel delta between one colour and six %ld\n", spread );
+
+		Check( glGetError() == GL_NO_ERROR, "and no GL error" );
+
+		plugin.SetFloatParameter( PT_CELL_FILL, 0.0f );
+		plugin.SetFloatParameter( PT_MODE, 0.0f );
+	}
+
 	printf( "the budgeted upload builds the same atlas as the one-shot one\n" );
 	{
 		// gridiron#4: 190 logos uploaded in one call locked Resolume solid for

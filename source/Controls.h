@@ -91,6 +91,15 @@ enum ParamId : unsigned int
 	PT_EDGE_AMOUNT,
 	PT_EDGE_THRESHOLD,
 
+	// -- Cell fill -----------------------------------------------------------
+	//
+	// Appended, so nothing above it renumbers. gridiron#6: a logo with alpha
+	// lets you see through a Rubik cube to the faces behind it.
+	PT_CELL_FILL,
+	PT_FILL_R,
+	PT_FILL_G,
+	PT_FILL_B,
+
 	PT_ABOUT_TEXT,
 
 	PT_COUNT

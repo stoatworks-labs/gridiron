@@ -226,6 +226,8 @@ void Renderer::Draw( const LayoutResult& layout,
 	mWall.Set( "GridLines", options.gridLines ? 1 : 0 );
 	mWall.Set( "GridWidth", options.gridWidth );
 	mWall.Set( "GridColour", options.gridR, options.gridG, options.gridB );
+	mWall.Set( "CellFill", options.cellFill );
+	mWall.Set( "FillColour", options.fillR, options.fillG, options.fillB );
 
 	glDrawArraysInstanced( GL_TRIANGLE_STRIP, 0, 4, instances );
 

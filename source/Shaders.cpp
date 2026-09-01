@@ -18,6 +18,7 @@ out vec3  vLayerUv;
 out float vBrightness;
 out float vOpacity;
 out float vEdge;
+out vec3  vNormal;
 
 void main()
 {
@@ -41,6 +42,12 @@ void main()
 	vBrightness = iMisc.y;
 	vOpacity    = iMisc.z;
 	vEdge       = iMisc.w;
+
+	// Which way this cell faces, in world space. Rubik mode is the only caller
+	// that cares: it is what lets the fragment shader tell the six sides of the
+	// cube apart WITHOUT a per-instance face id, which iMisc has no room left
+	// for. On a flat wall every cell shares one normal and it goes unused.
+	vNormal = normalize( mat3( model ) * vec3( 0.0, 0.0, 1.0 ) );
 }
 )";
 
@@ -51,6 +58,7 @@ in vec3  vLayerUv;
 in float vBrightness;
 in float vOpacity;
 in float vEdge;
+in vec3  vNormal;
 
 uniform sampler2DArray Logos;
 
@@ -62,6 +70,9 @@ uniform float LayerTexel;    // 1.0 / layerSize
 uniform int   GridLines;
 uniform float GridWidth;
 uniform vec3  GridColour;
+
+uniform int   CellFill;      // 0 off, 1 one colour, 2 a colour a face
+uniform vec3  FillColour;
 
 out vec4 fragColour;
 
@@ -126,6 +137,44 @@ void main()
 			// than as a logo.
 			c = vec4( vec3( 1.0 ) * e, e * EdgeAmount );
 		}
+	}
+
+	// A solid facelet, with the mark composited onto it.
+	//
+	// gridiron#6: in Rubik mode a logo with alpha lets you see straight through
+	// the cube to the faces behind, and a wall of mixed alpha and non-alpha
+	// artwork reads as a mess rather than as an object. Backing each cell makes
+	// the cube opaque, which is what a Rubik's cube is.
+	//
+	// Done BEFORE brightness and opacity so the backing dims and fades with the
+	// cell it belongs to, rather than staying lit while its logo fades out.
+	if( CellFill != 0 )
+	{
+		vec3 backing = FillColour;
+
+		if( CellFill == 2 )
+		{
+			// A colour a face, from the normal -- no per-instance face id
+			// needed. The dominant axis picks the side and its sign picks which
+			// of the pair, so the six come out stable however the cube is
+			// turned. These are the classic sticker colours, which is the whole
+			// reason anybody wants this: white/yellow, red/orange, green/blue.
+			vec3 n = normalize( vNormal );
+			vec3 a = abs( n );
+
+			if( a.x >= a.y && a.x >= a.z )
+				backing = n.x > 0.0 ? vec3( 0.72, 0.05, 0.05 ) : vec3( 0.95, 0.35, 0.05 );
+			else if( a.y >= a.z )
+				backing = n.y > 0.0 ? vec3( 0.95, 0.95, 0.95 ) : vec3( 0.95, 0.85, 0.10 );
+			else
+				backing = n.z > 0.0 ? vec3( 0.05, 0.45, 0.20 ) : vec3( 0.05, 0.25, 0.70 );
+		}
+
+		// Straight OVER, not a mix of premultiplied values: `c` is still
+		// straight alpha at this point, and the premultiply happens once at the
+		// bottom of main().
+		c.rgb = mix( backing, c.rgb, c.a );
+		c.a   = 1.0;
 	}
 
 	c.rgb *= vBrightness;
