@@ -288,6 +288,94 @@ int main()
 		Check( allFull, "and are all at full brightness when twinkle is off" );
 	}
 
+	printf( "a cube keeps its stickers\n" );
+	{
+		// gridiron#5: "after every couple of rotations it is as though the cube
+		// resets". The geometry was never the problem -- it is smooth to within
+		// float noise throughout. The schedule was: it turned over on its own
+		// four-second clock, which is every TWO moves, and swapped 52 of 54
+		// cells at once. A Rubik's cube's stickers do not change.
+		std::vector< Logo > logos;
+		for( int i = 0; i < 24; ++i )
+		{
+			Logo l;
+			l.index         = i;
+			l.aspect        = 1.0f;
+			l.trimX1        = 1.0f;
+			l.trimY1        = 1.0f;
+			l.trimmedAspect = 1.0f;
+			logos.push_back( l );
+		}
+
+		FillOptions fo;
+		int fc = 0, fr = 0;
+		FillGrid( Mode::Rubik, 3, 3, fc, fr );
+		const Schedule sched = BuildSchedule( logos, fc, fr, fo );
+
+		LayoutOptions lo;
+		lo.mode         = Mode::Rubik;
+		lo.outputAspect = 16.0f / 9.0f;
+
+		// One full scramble-and-solve cycle is kMoveCount moves at two seconds
+		// each. Walk just under it, finely.
+		const float cycle = static_cast< float >( kMoveCount ) * 2.0f;
+
+		std::vector< int > previousLogos;
+		std::vector< Mat4 > previousModels;
+		int  swaps = 0;
+		float worstJump = 0.0f;
+
+		for( float t = 0.05f; t < cycle - 0.05f; t += 0.01f )
+		{
+			const auto r = BuildLayout( sched, logos, 3, 3, t, lo );
+
+			std::vector< int >  nowLogos;
+			std::vector< Mat4 > nowModels;
+			for( const auto& c : r.cells )
+			{
+				nowLogos.push_back( c.logo );
+				nowModels.push_back( c.model );
+			}
+
+			if( !previousLogos.empty() && nowLogos != previousLogos )
+				++swaps;
+
+			if( previousModels.size() == nowModels.size() )
+			{
+				for( size_t i = 0; i < nowModels.size(); ++i )
+				{
+					const Vec3 a = TransformPoint( previousModels[ i ], { 0.0f, 0.0f, 0.0f } );
+					const Vec3 b = TransformPoint( nowModels[ i ], { 0.0f, 0.0f, 0.0f } );
+					const float d = std::sqrt( ( a.x - b.x ) * ( a.x - b.x ) + ( a.y - b.y ) * ( a.y - b.y ) +
+					                           ( a.z - b.z ) * ( a.z - b.z ) );
+					if( d > worstJump )
+						worstJump = d;
+				}
+			}
+
+			previousLogos  = nowLogos;
+			previousModels = nowModels;
+		}
+
+		Check( swaps == 0, "no cell changes logo inside one scramble-and-solve cycle" );
+		printf( "    %d logo swaps in %.0f s of cube\n", swaps, cycle );
+
+		// A quarter turn eased over two seconds moves a cell about 0.008 per
+		// 10 ms sample at its fastest. Anything past 0.02 is a cut, not motion.
+		Check( worstJump < 0.02f, "and the geometry never jumps" );
+		printf( "    largest cell movement between 10 ms samples %.4f\n", worstJump );
+
+		// It must still deal a new set eventually, or a cube would show the same
+		// logos for ever and the whole schedule would be pointless.
+		const auto first = BuildLayout( sched, logos, 3, 3, 1.0f, lo );
+		const auto later = BuildLayout( sched, logos, 3, 3, cycle + 1.0f, lo );
+		bool dealt = false;
+		for( size_t i = 0; i < first.cells.size() && i < later.cells.size(); ++i )
+			if( first.cells[ i ].logo != later.cells[ i ].logo )
+				dealt = true;
+		Check( dealt, "but the next cycle deals a new set" );
+	}
+
 	printf( "\n%s\n", failures ? "FAILED" : "all checks passed" );
 	return failures ? 1 : 0;
 }
