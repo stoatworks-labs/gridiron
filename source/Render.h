@@ -49,6 +49,10 @@ struct DrawOptions
 	bool  gridLines  = false;
 	float gridWidth  = 0.01f;
 	float gridR = 1.0f, gridG = 1.0f, gridB = 1.0f;
+
+	/// 0 off, 1 one colour behind every cell, 2 a colour a cube face.
+	int   cellFill = 0;
+	float fillR = 0.10f, fillG = 0.10f, fillB = 0.10f;
 };
 
 class Renderer

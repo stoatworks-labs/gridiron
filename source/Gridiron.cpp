@@ -146,6 +146,18 @@ GridironPlugin::GridironPlugin()
 	for( unsigned int i = PT_EDGE; i <= PT_EDGE_THRESHOLD; ++i )
 		SetParamGroup( i, "Edge" );
 
+	// Backs every cell with a solid colour, so a mark with alpha no longer
+	// makes the wall -- or the cube -- see-through. gridiron#6.
+	SetOptionParamInfo( PT_CELL_FILL, "Cell Fill", 3, 0.0f );
+	SetParamElementInfo( PT_CELL_FILL, 0, "Off", 0.0f );
+	SetParamElementInfo( PT_CELL_FILL, 1, "Solid Colour", 1.0f );
+	SetParamElementInfo( PT_CELL_FILL, 2, "Cube Faces", 2.0f );
+	SetParamInfo( PT_FILL_R, "Fill Red", FF_TYPE_RED, 0.10f );
+	SetParamInfo( PT_FILL_G, "Fill Green", FF_TYPE_GREEN, 0.10f );
+	SetParamInfo( PT_FILL_B, "Fill Blue", FF_TYPE_BLUE, 0.10f );
+	for( unsigned int i = PT_CELL_FILL; i <= PT_FILL_B; ++i )
+		SetParamGroup( i, "Cell Fill" );
+
 	mAboutText = "gridiron -- animated step-and-repeat";
 	SetParamInfo( PT_ABOUT_TEXT, "About", FF_TYPE_TEXT, mAboutText.c_str() );
 
@@ -159,6 +171,9 @@ GridironPlugin::GridironPlugin()
 	mParams[ PT_GRID_R ]         = 1.0f;
 	mParams[ PT_GRID_G ]         = 1.0f;
 	mParams[ PT_GRID_B ]         = 1.0f;
+	mParams[ PT_FILL_R ]         = 0.10f;
+	mParams[ PT_FILL_G ]         = 0.10f;
+	mParams[ PT_FILL_B ]         = 0.10f;
 	mParams[ PT_SEED ]           = 1.0f;
 	mParams[ PT_NO_ADJACENT ]    = 1.0f;
 	mParams[ PT_ASPECT_AWARE ]   = 1.0f;
@@ -346,7 +361,10 @@ void GridironPlugin::PollLoader()
 
 	if( mUploadPending && mGlReady )
 	{
-		mAtlas.Upload( mImages );
+		// Begin() allocates the array and works out every logo's geometry, but
+		// uploads no pixels. The pixels arrive over the following frames, a
+		// budget at a time -- see the note on kUploadPixelBudget.
+		mAtlas.Begin( mImages );
 		mUploadPending = false;
 		if( !mAtlas.Valid() )
 		{
@@ -357,10 +375,35 @@ void GridironPlugin::PollLoader()
 		}
 		else
 		{
-			diag::info( mTag + "atlas uploaded: " + mAtlas.Note() );
+			// Allocated, not uploaded -- the pixels start arriving below.
+			diag::info( mTag + "atlas allocated: " + mAtlas.Note() );
 		}
 		// Force a schedule rebuild: the logo count has almost certainly changed.
+		// Safe to do now rather than when the pixels finish arriving, because
+		// Begin() has already settled LayerCount() and Logos().
 		mScheduleKey = ScheduleKey{};
+	}
+
+	// The pixels, a budget at a time.
+	//
+	// gridiron#4: a folder of 190 logos uploaded in one call took about a minute
+	// with Resolume locked solid -- a CPU resample and a texture upload per
+	// logo, all on the render thread, in one frame. Reading the folder was never
+	// the problem; that has always been on its own thread.
+	//
+	// The budget is in PIXELS because that is what the work costs: at 512px this
+	// is sixteen logos a frame, at 2048px it is one. Four megapixels is about
+	// 16 MB of RGBA a frame, which is a fraction of what the plugin's own
+	// rendering moves and is invisible next to a 60th of a second.
+	//
+	// Nothing waits for this. The layout is already built, and a layer that has
+	// not arrived is transparent, so the wall fills in over a few frames instead
+	// of the host stopping dead.
+	if( mGlReady && mAtlas.Uploading() )
+	{
+		constexpr size_t kUploadPixelBudget = 4u * 1024u * 1024u;
+		if( mAtlas.Step( mImages, kUploadPixelBudget ) )
+			diag::info( mTag + "atlas uploaded: " + mAtlas.Note() );
 	}
 }
 
@@ -490,6 +533,10 @@ FFResult GridironPlugin::ProcessOpenGL( ProcessOpenGLStruct* pGL )
 	dopts.gridR         = mParams[ PT_GRID_R ];
 	dopts.gridG         = mParams[ PT_GRID_G ];
 	dopts.gridB         = mParams[ PT_GRID_B ];
+	dopts.cellFill      = OptionIndex( PT_CELL_FILL, 3 );
+	dopts.fillR         = mParams[ PT_FILL_R ];
+	dopts.fillG         = mParams[ PT_FILL_G ];
+	dopts.fillB         = mParams[ PT_FILL_B ];
 
 	mRenderer.Draw( layout, mAtlas, width, height, pGL->HostFBO, dopts );
 	return FF_SUCCESS;

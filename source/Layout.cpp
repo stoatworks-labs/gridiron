@@ -267,20 +267,40 @@ LayoutResult BuildLayout( const Schedule& schedule,
 	const std::vector< CubeMove > moves = cube ? MoveSequence( options.seed, n ) : std::vector< CubeMove >{};
 
 	// Which move we are in, and how far through it.
+	const float mt  = t * 0.5f;// a move every two seconds at speed 1
 	int   moveIndex = 0;
 	float moveFrac  = 0.0f;
 	if( cube )
 	{
-		const float mt = t * 0.5f;// a move every two seconds at speed 1
-		moveIndex      = static_cast< int >( std::floor( mt ) ) % kMoveCount;
-		moveFrac       = Fract( mt );
+		moveIndex = static_cast< int >( std::floor( mt ) ) % kMoveCount;
+		moveFrac  = Fract( mt );
 		if( moveIndex < 0 )
 			moveIndex += kMoveCount;
 	}
 
 	// Which step of the schedule the wall is showing. Fade mode overrides this
 	// per cell, because there the whole point is that cells are out of step.
-	const int globalStep = stepCount == 1 ? 0 : static_cast< int >( std::floor( t * 0.25f ) ) % stepCount;
+	//
+	// ☠️ A CUBE KEEPS ITS STICKERS. On a flat wall the schedule turning over
+	// every four seconds is the whole idea -- that is how every logo gets its
+	// airtime. On a cube it is not: a Rubik's cube's stickers do not change,
+	// the pieces move and carry their faces with them. Advancing the schedule
+	// on its own clock swapped 52 of 54 cells at once every two moves, which is
+	// what gridiron#5 saw and reasonably described as the cube resetting -- the
+	// geometry was smooth throughout and it still looked like a jump cut.
+	//
+	// So on a cube the schedule advances once per scramble-and-solve CYCLE, at
+	// the one instant the cube is back to solved and in its opening pose. That
+	// is where a new set of logos reads as a new deal rather than as a glitch.
+	int globalStep = 0;
+	if( stepCount > 1 )
+	{
+		globalStep = cube
+		               ? static_cast< int >( std::floor( mt / static_cast< float >( kMoveCount ) ) ) % stepCount
+		               : static_cast< int >( std::floor( t * 0.25f ) ) % stepCount;
+		if( globalStep < 0 )
+			globalStep += stepCount;
+	}
 
 	// Whole-cell offsets for a logo walking through the grid.
 	int walkC = 0, walkR = 0;
