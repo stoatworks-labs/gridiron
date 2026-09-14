@@ -175,8 +175,15 @@ filing a bug, this is the single most useful thing to attach.
 
 ## Status
 
-**v0.1.0 released, and being run in Resolume by other people for the first
-time.** Verified as far as an offline harness and `oxbow selftest` can reach:
+**v0.2.2 released, and being run in Resolume by other people.** The first
+field report was a Windows-only one — a black wall from a stale GL error read
+as a refused upload, and a whole-grid scroll that slid off frame and never
+wrapped — and both are fixed in v0.1.2, which also made the plugin write the
+fleet's standard log file. v0.2.0 spreads the atlas upload over frames, adds a
+solid cell fill so the cube is no longer see-through, and stops the cube
+resetting; v0.2.1 and v0.2.2 are the Windows installer that no longer touches
+the system PATH, and dependency maintenance. Verified as far as an offline
+harness and `oxbow selftest` can reach:
 the bundle registers, instantiates, loads a folder and draws a wall, a hero
 block, per-cell line art and a turning cube, with no GL errors, and holds the
 wall on screen under every motion control ten minutes into a composition.
