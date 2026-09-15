@@ -18,6 +18,10 @@ wall wrapped onto a Rubik's cube that turns a slice at a time.
 
 FFGL source plugin for Resolume Arena and Avenue.
 
+![Gridiron's cube of logos from the demo pack, rendered by the offline harness](docs/thumb.png)
+
+<sub>Rendered by the plugin's own offline harness rather than captured from Resolume. The logos are the demo pack that ships with the download: Stoatworks' own marks, a few project graphics, and a set of invented sponsors named after the trade — Colour Bars & Grill, Haze & Confused, Gobo Getters, Truss Issues. The Resolume product marks are Resolume's own, included as sample content only.</sub>
+
 <!-- downloads:start -->
 
 ## Download
