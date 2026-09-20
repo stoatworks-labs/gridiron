@@ -18,7 +18,7 @@
 static CFFGLPluginInfo PluginInfo(
 	PluginFactory< gridiron::GridironPlugin >,
 	"GR01",                                                  // unique id, 4 chars, unique across the fleet
-	"Gridiron",                                              // name
+	"SW Gridiron",                                           // name
 	2,                                                       // API major
 	1,                                                       // API minor
 	0,                                                       // plugin major
