@@ -8,10 +8,11 @@ list of fleet traps this plugin is known to be walking into.
 
 ## Status
 
-v0.1.0 **released** on 2026-08-24, and in other people's hands. Builds on macOS;
-`ctest` runs four suites and `oxbow selftest` confirms the bundle registers,
-instantiates and renders. Windows and Linux are built by CI only and have never
-been built or run locally.
+v0.2.3 is the current release (v0.1.0, the first, was **released** on
+2026-08-24), and it is in other people's hands. Builds on macOS; `ctest` runs
+four suites and `oxbow selftest` confirms the bundle registers, instantiates and
+renders. Windows is built by CI only, never locally, and outside users run it in
+Resolume on Windows 11 (gridiron#1, #4–#6). There is no Linux build.
 
 **The Windows binary had never been run by anyone when it shipped.** The first
 outside report (gridiron#1) was a black wall in Resolume on Windows 11, and it
