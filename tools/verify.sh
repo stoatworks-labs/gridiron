@@ -28,6 +28,20 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
+# oxbow, for the instantiation check. It sits beside this repo's checkout --
+# and from a git worktree `..` is the worktrees folder, not Projects/resolume,
+# so the main checkout is found through git's common dir as well. OXBOW names
+# the binary outright.
+OXBOW_REPO=""
+for candidate in "../oxbow" \
+                 "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")/../oxbow"; do
+	if [ -d "$candidate/build" ]; then
+		OXBOW_REPO="$candidate"
+		break
+	fi
+done
+OXBOW_REPO="${OXBOW_REPO:-../oxbow}"
+
 BUILD="${BUILD:-build}"
 FIXTURES="$PWD/tools/fixtures"
 failures=0
@@ -187,7 +201,7 @@ if [ "$(uname)" = "Darwin" ] && [ -d "$BUNDLE" ]; then
 	rm -rf "$tmp"
 
 	step "oxbow"
-	OXBOW="${OXBOW:-../oxbow/build/oxbow}"
+	OXBOW="${OXBOW:-$OXBOW_REPO/build/oxbow}"
 	if [ -x "$OXBOW" ]; then
 		# Read the output, not the verdict: gridiron with no folder set draws
 		# nothing on purpose, and oxbow cannot set a folder because --set drives
