@@ -1,27 +1,26 @@
 # Gridiron
 
 > **AI-assisted project.** This codebase was created with [Claude](https://claude.com/claude-code)
-> (Anthropic), directed and reviewed by a human author. The arrangement is not
-> asserted but **measured**: an offline harness builds real schedules and checks
-> that every logo gets the same number of placements to the unit, that no logo
-> touches a copy of itself, and that the same seed gives the same wall. The
-> rendering is checked the same way — a headless GL context drives the real
-> plugin class against a real folder and counts pixels. **It is being run in
-> Resolume by other people, but no harness here reaches a real composition on
-> real hardware** — see [Status](#status).
+> (Anthropic), directed and reviewed by a human author. The arrangement is
+> **measured** rather than asserted: an offline harness builds real schedules and
+> checks that every logo gets the same number of placements to the unit, that no logo
+> touches a copy of itself, and that the same seed gives the same wall. The rendering's
+> checked the same way, with a headless GL context driving the real plugin class against
+> a real folder and counting pixels. **Other people are running it in Resolume, but no
+> harness here reaches a real composition on real hardware** (see [Status](#status)).
 
 An animated step-and-repeat: the sponsor wall you stand in front of to be
 photographed, built from a folder of logos and given something to do.
 
-Point it at a folder. It fills a grid intelligently, and then animates —
-scrolling reels, twinkling cells, cells that fade and change logo, or the whole
-wall wrapped onto a Rubik's cube that turns a slice at a time.
+Point it at a folder of logos and it fills a grid by the rules below, then
+animates it: scrolling reels, twinkling cells, cells that fade and change logo,
+or the whole wall wrapped onto a Rubik's cube that turns a slice at a time.
 
-FFGL source plugin for Resolume Arena and Avenue.
+It's an FFGL source plugin for Resolume Arena and Avenue.
 
 ![Gridiron's cube of logos from the demo pack, rendered by the offline harness](docs/thumb.png)
 
-<sub>Rendered by the plugin's own offline harness rather than captured from Resolume. The logos are the demo pack that ships with the download: Stoatworks' own marks, a few project graphics, and a set of invented sponsors named after the trade — Colour Bars & Grill, Haze & Confused, Gobo Getters, Truss Issues. The Resolume product marks are Resolume's own, included as sample content only.</sub>
+<sub>Rendered by the plugin's own offline harness rather than captured from Resolume. The logos are the demo pack that ships with the download: Stoatworks' own marks, a few project graphics, and a set of invented sponsors named after the trade: Colour Bars & Grill, Haze & Confused, Gobo Getters, Truss Issues. The Resolume product marks are Resolume's own, included as sample content only.</sub>
 
 <!-- downloads:start -->
 
@@ -60,24 +59,24 @@ macOS builds are signed and notarised and open normally. The Windows builds are 
 **Pick any single image inside the folder.** Gridiron reads the directory around
 it.
 
-This is not a preference. FFGL's parameter types stop at `FF_TYPE_FILE` — a
-*file* dialog — and there is no directory type in the specification, so a folder
-picker cannot be built. Picking any file inside the folder is one click in the
-real native dialog and needs no path typing. `Folder Override` takes a literal
+I'd have used a folder picker if there were one. FFGL's parameter types stop at
+`FF_TYPE_FILE` (a *file* dialog), and there's no directory type in the
+specification, so a folder picker can't be built. Picking any file inside the
+folder is one click in the native dialog and needs no path typing. `Folder Override` takes a literal
 path for anyone driving the plugin from a script.
 
 Accepted: `png` `jpg` `jpeg` `gif` `bmp` `tga` `psd` `svg`. Animated GIFs play.
 
 ## ⚠️ Convert text to outlines before exporting an SVG
 
-**Live `<text>` in an SVG will not draw. At all.**
+**Live `<text>` in an SVG won't draw. At all.**
 
-The vector parser has no font engine — no font loading, no glyph outlines, not
+The vector parser has no font engine: no font loading, no glyph outlines, not
 even a stub. An SVG whose wordmark is live text parses without error, reports no
 failure, and draws nothing where the sponsor's name should be.
 
-On a sponsor wall this is the worst thing that can happen, so gridiron counts the
-dropped elements and says so in its About field. But the fix is at export:
+On a sponsor wall that's the worst thing that can happen, so gridiron counts the
+dropped elements and says so in its About field. The fix is at export, though:
 
 > Illustrator: select the text, **Type → Create Outlines** (⇧⌘O), then export.
 > Inkscape: **Path → Object to Path** (⇧⌘C).
@@ -87,22 +86,23 @@ dropped elements and says so in its About field. But the fix is at export:
 Four rules, in this priority order when they conflict:
 
 1. **Reproducible.** A seed fixes the arrangement. The same folder and seed give
-   the same wall — across a reload, across a machine, and across the gap between
+   the same wall, across a reload, across a machine, and across the gap between
    the wall the client approved and the wall that goes up on the night. Shuffle
    the seed until you like one, then leave it.
 2. **No adjacent repeat.** A logo never touches a copy of itself. This is what
    makes a small pack over a big wall read as designed rather than looped, and
-   it is the first thing an eye picks out of a photograph. The control is
-   **Vary Neighbours**, on by default. It does not promise every logo is
-   unique — with fewer logos than cells it cannot be — only that no two
+   it's the first thing an eye picks out of a photograph. The control is
+   **Vary Neighbours**, on by default. It doesn't promise every logo is
+   unique (with fewer logos than cells it can't be), only that no two
    touching cells carry the same one.
 3. **Equal airtime.** Every logo is on screen for the same total *time* per
-   cycle — not the same number of placements. Sponsors pay for parity.
+   cycle, which isn't the same as the same number of placements. Sponsors pay
+   for parity, and some of them count.
 4. **Aspect-aware.** A long wordmark is given two cells rather than being
    letterboxed into one, and is never cropped in half.
 
 Rule 2 beats rule 4 because a duplicated neighbour is visible from across a room
-and a letterboxed logo is not.
+and a letterboxed logo isn't.
 
 ### Fit modes
 
@@ -114,28 +114,28 @@ and a letterboxed logo is not.
 | **Stretch** | distorted to the cell |
 
 **Trim margins** is the one worth knowing about. Sponsor packs never have
-consistent margins — one logo is exported tight to its bounding box, the next
+consistent margins. One logo is exported tight to its bounding box, the next
 sits in a square canvas with a third of it air, and dropped into identical cells
 they read as wildly different sizes, which looks like a mistake by whoever built
 the wall. Trim measures where the opaque pixels actually are and normalises
 every mark to the same *optical* size.
 
-It letterboxes rather than filling, deliberately. Filling after a trim is what
+It letterboxes rather than filling, on purpose. Filling after a trim is what
 **Fill** already does, and on a wordmark it scales until the name runs off both
-sides of the cell — "COLOUR BARS & GRILL" comes out as "FE ARJR BARE & CO".
+sides of the cell, so "COLOUR BARS & GRILL" comes out as "FE ARJR BARE & CO".
 
 ## Modes
 
-- **Static** — a wall.
-- **Slot Machine** — each column is a reel at its own speed, decelerating to a
-  stop. The travel is a whole number of cells, so a reel cannot land out of
+- **Static:** a wall.
+- **Slot Machine:** each column is a reel at its own speed, decelerating to a
+  stop. The travel is a whole number of cells, so a reel can't land out of
   alignment: the landing is exact by construction, not snapped at the end.
-- **Rubik** — the wall wrapped onto a cube, one slice turning at a time. The
+- **Rubik:** the wall wrapped onto a cube, one slice turning at a time. The
   sequence is a scramble followed by its own inverse, so it returns to a solved
   cube and loops without a jump.
-- **Twinkle** — every cell at a different point between full brightness and
+- **Twinkle:** every cell at a different point between full brightness and
   black. The phases are hashed per cell, so nothing pulses in lockstep.
-- **Fade Cycle** — cells fade out and in, changing logo while they are dark.
+- **Fade Cycle:** cells fade out and in, changing logo while they're dark.
 
 On top of any of them: whole-grid scroll and rotation, logo walk (content moving
 *through* the grid while the cells stay put), a visible grid, and a hero block at
@@ -143,12 +143,13 @@ top, middle or bottom for the headline sponsor or the event name.
 
 ## Edge treatments
 
-The three line-art looks from the fleet — **Burin** (engraved), **Nib** (inked
-contour), **Vectrix** (traced) — applied to the whole wall, to every logo
-individually, to the hero only, or to everything except the hero.
+Gridiron has the three line-art looks from the fleet, **Burin** (engraved),
+**Nib** (inked contour) and **Vectrix** (traced), and applies them to the whole
+wall, to every logo individually, to the hero only, or to everything except the
+hero.
 
 Per-logo is the reason these are built in rather than left to the Resolume
-chain: hero solid, everything else line art, is not something you can get by
+chain: hero solid, everything else line art, isn't something you can get by
 stacking a plugin on top.
 
 ## Building
@@ -160,30 +161,30 @@ cmake --build build -j8
 ctest --test-dir build --output-on-failure
 ```
 
-`ctest` runs four suites: the arrangement, the geometry, the decoding, and — on
-macOS — a real render in a headless GL context.
+`ctest` runs four suites: the arrangement, the geometry, the decoding, and (on
+macOS) a real render in a headless GL context.
 
 ## Diagnostics
 
-Every way this plugin can fail looks the same from your side — a black clip —
+Every way this plugin can fail looks the same from your side (a black clip),
 and none of them puts a message anywhere in the host. The log is where it says
 which one happened:
 
     macOS     ~/Library/Logs/gridiron/gridiron.YYYY-MM-DD.log
     Windows   %LOCALAPPDATA%\gridiron\logs\gridiron.YYYY-MM-DD.log
 
-There is nothing to switch on and no command to run. It records the folder path
+There's nothing to switch on and no command to run. It records the folder path
 as the host handed it over, how many files were found and how many survived
 decoding, the size of the texture array and whether the GPU took it, your
-graphics driver, and which unit the host's clock turned out to be in. If you are
+graphics driver, and which unit the host's clock turned out to be in. If you're
 filing a bug, this is the single most useful thing to attach.
 
 ## Status
 
 **v0.2.3 released, and being run in Resolume by other people.** The first
-field report was a Windows-only one — a black wall from a stale GL error read
+field report was a Windows-only one (a black wall from a stale GL error read
 as a refused upload, and a whole-grid scroll that slid off frame and never
-wrapped — and both are fixed in v0.1.2, which also made the plugin write the
+wrapped), and both are fixed in v0.1.2, which also made the plugin write the
 fleet's standard log file. v0.2.0 spreads the atlas upload over frames, adds a
 solid cell fill so the cube is no longer see-through, and stops the cube
 resetting; v0.2.1 and v0.2.2 are the Windows installer that no longer touches
@@ -195,8 +196,9 @@ block, per-cell line art and a turning cube, with no GL errors, and holds the
 wall on screen under every motion control ten minutes into a composition.
 
 What no harness here can tell you is how it behaves in a real composition on
-real hardware — and the pixel-level suite is macOS-only, so on Windows that
-gap is wider. Bug reports with the log attached are read and acted on.
+real hardware, and the pixel-level suite is macOS-only, so on Windows that
+gap is wider. I read bug reports with the log attached and act on them, so
+please do send them.
 
 ## Licence
 
