@@ -100,8 +100,9 @@ Three rules, all three chosen deliberately:
 - **Aspect-aware.** Wide logos land in wide or spanned cells, square logos in
   square cells, rather than being letterboxed into a slot that fights them.
 - **Equal airtime.** With more logos than cells, the schedule gives every logo an
-  equal *amount of on-screen time* across a full cycle — not merely an equal
-  number of placements. Sponsors pay for parity and it is auditable.
+  equal *amount of on-screen time* across a full cycle: an equal number of
+  placements, each one step long, with a wordmark spanning two cells counted
+  once. Sponsors pay for parity and it is auditable.
 
 - **Reproducible.** A seed parameter fixes the arrangement. The same folder and
   the same seed always produce the same wall, so an operator can shuffle until

@@ -96,8 +96,9 @@ Four rules, in this priority order when they conflict:
    unique (with fewer logos than cells it can't be), only that no two
    touching cells carry the same one.
 3. **Equal airtime.** Every logo is on screen for the same total *time* per
-   cycle, which isn't the same as the same number of placements. Sponsors pay
-   for parity, and some of them count.
+   cycle: the same number of placements, each one step long, and a wordmark
+   spread over two cells still counts as one. Sponsors pay for parity, and some
+   of them count.
 4. **Aspect-aware.** A long wordmark is given two cells rather than being
    letterboxed into one, and is never cropped in half.
 
