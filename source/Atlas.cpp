@@ -55,51 +55,10 @@ void Atlas::Release()
 	mLayerSize = 0;
 	mUploaded  = 0;
 	mLogos.clear();
+	mSources.clear();
 	mScratch.clear();
 	mScratch.shrink_to_fit();
 }
-
-int ChooseLayerSize( int cellPixels )
-{
-	int size = 64;
-	while( size < cellPixels && size < 2048 )
-		size *= 2;
-	return size;
-}
-
-namespace
-{
-/// Where one image sits inside a square layer, keeping its aspect.
-///
-/// Pulled out of the upload loop because Begin() needs it for the geometry and
-/// Step() needs it for the blit, and the two computing it separately is a
-/// silent mis-registration waiting to happen -- the trim box would describe a
-/// rectangle the pixels are not in.
-struct LayerFit
-{
-	int dx = 0, dy = 0, dw = 0, dh = 0;
-};
-
-LayerFit PlaceIn( const Image& img, int layerSize )
-{
-	LayerFit p;
-	p.dw = layerSize;
-	p.dh = layerSize;
-
-	if( img.aspect >= 1.0f )
-		p.dh = std::max( 1, static_cast< int >( static_cast< float >( layerSize ) / img.aspect + 0.5f ) );
-	else
-		p.dw = std::max( 1, static_cast< int >( static_cast< float >( layerSize ) * img.aspect + 0.5f ) );
-
-	p.dw = std::min( p.dw, layerSize );
-	p.dh = std::min( p.dh, layerSize );
-
-	// The padding stays transparent, which is what makes bleeding harmless.
-	p.dx = ( layerSize - p.dw ) / 2;
-	p.dy = ( layerSize - p.dh ) / 2;
-	return p;
-}
-} // namespace
 
 bool Atlas::Upload( const std::vector< Image >& images )
 {
@@ -127,26 +86,17 @@ bool Atlas::Begin( const std::vector< Image >& images )
 	GLint maxSize = 0, maxLayers = 0;
 	glGetIntegerv( GL_MAX_TEXTURE_SIZE, &maxSize );
 	glGetIntegerv( GL_MAX_ARRAY_TEXTURE_LAYERS, &maxLayers );
-	if( maxSize <= 0 )
-		maxSize = 2048;
-	if( maxLayers <= 0 )
-		maxLayers = 256;
 
-	// The largest logo decides the layer edge, so nothing is downsampled that
-	// did not have to be.
-	int longest = 0;
-	for( const Image& i : images )
-		longest = std::max( longest, std::max( i.width, i.height ) );
-
-	mLayerSize = std::min( ChooseLayerSize( longest ), static_cast< int >( maxSize ) );
-
-	int layers = static_cast< int >( images.size() );
-	if( layers > maxLayers )
-	{
-		mNote  = "folder has " + std::to_string( layers ) + " images but this GPU allows " +
-				std::to_string( maxLayers ) + " layers; the rest are ignored";
-		layers = static_cast< int >( maxLayers );
-	}
+	// Which layer holds which image and frame, and every logo's geometry. This
+	// is arithmetic, not pixels, so it costs nothing worth budgeting -- and
+	// doing it here means LayerCount() and Logos() are final the moment Begin()
+	// returns, so the layout is built once and the wall can draw while the
+	// pixels are still arriving.
+	// A driver that answers 0 for either limit gets PlanAtlas's conservative
+	// defaults rather than an empty array.
+	AtlasPlan plan   = PlanAtlas( images, static_cast< int >( maxSize ), static_cast< int >( maxLayers ) );
+	mLayerSize       = plan.layerSize;
+	const int layers = static_cast< int >( plan.layers.size() );
 
 	// Drain whatever the host left in the queue before asking the question.
 	// glGetError reports the *oldest* unreported error, not the one the previous
@@ -190,44 +140,14 @@ bool Atlas::Begin( const std::vector< Image >& images )
 	// breaking if the format ever changes.
 	glPixelStorei( GL_UNPACK_ALIGNMENT, 4 );
 
-	// Every logo's geometry, up front. This is arithmetic, not pixels, so it
-	// costs nothing worth budgeting -- and doing it here means LayerCount() and
-	// Logos() are final the moment Begin() returns, so the layout is built once
-	// and the wall can draw while the pixels are still arriving.
-	for( int i = 0; i < layers; ++i )
-	{
-		const Image& img = images[ static_cast< size_t >( i ) ];
-
-		Logo l;
-		l.index  = i;
-		l.name   = img.name;
-		l.aspect = img.aspect;
-
-		const LayerFit p = PlaceIn( img, mLayerSize );
-
-		const float fx = static_cast< float >( p.dw ) / static_cast< float >( mLayerSize );
-		const float fy = static_cast< float >( p.dh ) / static_cast< float >( mLayerSize );
-		const float ox = static_cast< float >( p.dx ) / static_cast< float >( mLayerSize );
-		const float oy = static_cast< float >( p.dy ) / static_cast< float >( mLayerSize );
-
-		// The trim box was measured on the file; move it into layer space.
-		l.trimX0        = ox + img.trimX0 * fx;
-		l.trimX1        = ox + img.trimX1 * fx;
-		l.trimY0        = oy + img.trimY0 * fy;
-		l.trimY1        = oy + img.trimY1 * fy;
-		l.trimmedAspect = img.trimmedAspect;
-
-		mLogos.push_back( l );
-	}
-
 	glBindTexture( GL_TEXTURE_2D_ARRAY, 0 );
 
+	mLogos    = std::move( plan.logos );
+	mSources  = std::move( plan.layers );
 	mLayers   = layers;
 	mUploaded = 0;
 	mScratch.assign( static_cast< size_t >( mLayerSize ) * mLayerSize * 4, 0 );
-
-	if( mNote.empty() )
-		mNote = std::to_string( layers ) + " logos at " + std::to_string( mLayerSize ) + "px";
+	mNote = plan.note;
 	return true;
 }
 
@@ -239,7 +159,7 @@ bool Atlas::Step( const std::vector< Image >& images, size_t pixelBudget )
 	// The caller is supposed to pass the same vector it gave Begin(). If it did
 	// not, indexing it would read off the end -- say so and stop rather than
 	// corrupt the wall or the process.
-	if( images.size() < static_cast< size_t >( mLayers ) )
+	if( images.size() < mLogos.size() )
 	{
 		mNote = "the image list changed under the upload";
 		Release();
@@ -260,14 +180,18 @@ bool Atlas::Step( const std::vector< Image >& images, size_t pixelBudget )
 	// the budget would never upload and the wall would stay blank for ever.
 	while( mUploaded < mLayers && ( spent == 0 || spent + perLayer <= pixelBudget ) )
 	{
-		const int i      = mUploaded;
-		const Image& img = images[ static_cast< size_t >( i ) ];
+		const int                i      = mUploaded;
+		const AtlasPlan::Layer& source = mSources[ static_cast< size_t >( i ) ];
+		const Image&            img    = images[ static_cast< size_t >( source.image ) ];
 
 		std::fill( mScratch.begin(), mScratch.end(), static_cast< uint8_t >( 0 ) );
 
+		// Every frame of an animated logo sits where its first does: one
+		// LayerFit, so the frames register exactly on one another.
 		const LayerFit p = PlaceIn( img, mLayerSize );
-		if( !img.frames.empty() )
-			Blit( img.frames[ 0 ].rgba.data(), img.width, img.height, mScratch, mLayerSize, p.dx, p.dy, p.dw, p.dh );
+		if( static_cast< size_t >( source.frame ) < img.frames.size() )
+			Blit( img.frames[ static_cast< size_t >( source.frame ) ].rgba.data(), img.width, img.height, mScratch,
+			      mLayerSize, p.dx, p.dy, p.dw, p.dh );
 
 		glTexSubImage3D( GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, mLayerSize, mLayerSize, 1, GL_RGBA, GL_UNSIGNED_BYTE,
 		                 mScratch.data() );

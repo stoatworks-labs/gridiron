@@ -56,19 +56,39 @@
 namespace gridiron
 {
 /// A logo, as far as the arrangement and the layout are concerned. The pixels
-/// live in the atlas; this is everything about a logo that is geometry.
+/// live in the atlas; this is everything about a logo that is geometry, and the
+/// timing of its frames.
 struct Logo
 {
-	int         index = 0;///< layer in the atlas, and position in the sorted listing
+	int         index = 0;///< position in the sorted listing
 	std::string name;     ///< filename, for diagnostics and the hero picker
 
-	/// Aspect of the whole layer, artwork plus whatever margin was exported
-	/// with it.
+	/// Aspect of the artwork, plus whatever margin was exported with it.
 	float aspect = 1.0f;
+
+	/// Where that artwork sits in its layer, in layer UV.
+	///
+	/// **Not the whole layer.** The atlas pads every logo into a square layer,
+	/// centred and keeping its aspect, so a 4:1 wordmark spans the layer's
+	/// width and a quarter of its height. Fit, Fill and Stretch once mapped the
+	/// whole square at the artwork's aspect, which drew that wordmark at about
+	/// 16:1 -- every non-square logo on the wall, squashed, by default. They
+	/// work on this box now; the defaults describe artwork that fills its
+	/// layer.
+	float imageX0 = 0.0f, imageY0 = 0.0f, imageX1 = 1.0f, imageY1 = 1.0f;
 
 	/// The opaque part of the layer, and its aspect.
 	float trimX0 = 0.0f, trimY0 = 0.0f, trimX1 = 1.0f, trimY1 = 1.0f;
 	float trimmedAspect = 1.0f;
+
+	/// The atlas layer holding frame 0. An animated logo's other frames are the
+	/// layers straight after it.
+	int layer = 0;
+
+	/// How long each frame shows, in milliseconds. Empty or one entry for a
+	/// still -- including an animated GIF whose frames the atlas had no room
+	/// for, which is drawn as its first frame rather than not at all.
+	std::vector< int > frameMs;
 
 	/// Which aspect the "is this a wordmark?" test should use.
 	///

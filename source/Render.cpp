@@ -153,11 +153,20 @@ void Renderer::Draw( const LayoutResult& layout,
 		return;
 
 	// ---- pack the instance data ------------------------------------------
+	const std::vector< Logo >& logos = atlas.Logos();
+
 	std::vector< float > data;
 	data.reserve( layout.cells.size() * kFloatsPerInstance );
 	for( const CellTransform& c : layout.cells )
 	{
-		if( c.logo < 0 || c.logo >= atlas.LayerCount() )
+		if( c.logo < 0 || c.logo >= static_cast< int >( logos.size() ) )
+			continue;
+
+		// A logo is a run of layers, one per frame; the layout says which frame.
+		const Logo& logo   = logos[ static_cast< size_t >( c.logo ) ];
+		const int   frames = std::max( static_cast< int >( logo.frameMs.size() ), 1 );
+		const int   layer  = logo.layer + std::min( std::max( c.frame, 0 ), frames - 1 );
+		if( layer >= atlas.LayerCount() )
 			continue;
 
 		const float* m = c.model.Data();
@@ -168,7 +177,7 @@ void Renderer::Draw( const LayoutResult& layout,
 		data.push_back( c.uvOffsetX );
 		data.push_back( c.uvOffsetY );
 
-		data.push_back( static_cast< float >( c.logo ) );
+		data.push_back( static_cast< float >( layer ) );
 		data.push_back( c.brightness );
 		data.push_back( c.opacity );
 		data.push_back( c.edge ? 1.0f : 0.0f );

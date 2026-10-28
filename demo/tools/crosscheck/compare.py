@@ -52,17 +52,19 @@ def main(argv):
 
     floats = differing = worst = 0
     worst_abs = 0.0
-    schedules = cells = 0
+    schedules = cells = plans = 0
     for number, (a, b) in enumerate(zip(left, right), start=1):
         if a.startswith("S "):
             schedules += 1
         if a.startswith("C "):
             cells += 1
+        if a.startswith("A "):
+            plans += 1
         ta, tb = a.split(" "), b.split(" ")
         if len(ta) != len(tb) or ta[0] != tb[0]:
             problems.append(f"line {number}: shape differs\n    C++: {a[:160]}\n    js : {b[:160]}")
             continue
-        if ta[0] in ("S", "T", "L") and a != b:
+        if ta[0] in ("S", "T", "L", "A", "Q") and a != b:
             problems.append(f"line {number}: {ta[0]} differs\n    C++: {a[:160]}\n    js : {b[:160]}")
             continue
         for x, y in zip(ta, tb):
@@ -85,7 +87,7 @@ def main(argv):
         if len(problems) > 12 and "--report" not in argv:
             break
 
-    summary = (f"{len(left)} lines, {schedules} schedules, {cells} cells, {floats:,} floats; "
+    summary = (f"{len(left)} lines, {plans} atlas plans, {schedules} schedules, {cells} cells, {floats:,} floats; "
                f"{differing:,} differ: at most {worst} ulp (values above 0.001) and {worst_abs:.3g} absolute")
     if "--report" in argv:
         beyond = [p for p in problems if " apart)" in p]

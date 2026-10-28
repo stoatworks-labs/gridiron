@@ -1,6 +1,10 @@
-// Decoding checks against real files on disk. No GL, no host.
+// Decoding checks against real files on disk, and the atlas plan built from
+// them. No GL, no host.
+#include "../../source/AtlasPlan.h"
 #include "../../source/Library.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -124,6 +128,101 @@ int main( int argc, char** argv )
 		const Image* tight = Find( images, "alpha_round.png" );
 		Check( tight && tight->trimX0 < 0.09f && tight->trimX1 > 0.91f,
 			   "a logo drawn to its edges is not trimmed away" );
+	}
+
+	printf( "an animated logo's trim holds every frame\n" );
+	{
+		// The trim was measured on frame 0, which was all the wall ever showed.
+		// A GIF that plays needs a box holding all of it, or Trim margins crops
+		// whatever the later frames draw outside the first.
+		Image anim;
+		anim.width  = 10;
+		anim.height = 10;
+		anim.aspect = 1.0f;
+		for( int k = 0; k < 2; ++k )
+		{
+			Frame f;
+			f.rgba.assign( 10 * 10 * 4, 0 );
+			const int x = k == 0 ? 2 : 7;// a dot on the left, then on the right
+			f.rgba[ ( static_cast< size_t >( 5 ) * 10 + x ) * 4 + 3 ] = 255;
+			anim.frames.push_back( f );
+		}
+		ComputeTrim( anim );
+		Check( anim.trimX0 < 0.25f && anim.trimX1 > 0.75f, "the box spans the dot in frame 0 and the dot in frame 1" );
+	}
+
+	printf( "the atlas plan\n" );
+	{
+		const AtlasPlan plan = PlanAtlas( images, 8192, 2048 );
+		Check( plan.logos.size() == images.size(), "one logo per image" );
+		Check( plan.layers.size() == images.size() + 3, "and one layer per frame: the four-frame GIF takes four" );
+
+		bool contiguous = true, timed = true, boxes = true;
+		for( const Logo& l : plan.logos )
+		{
+			const Image& img    = images[ static_cast< size_t >( l.index ) ];
+			const int    frames = img.Animated() ? static_cast< int >( img.frames.size() ) : 1;
+			for( int k = 0; k < frames; ++k )
+			{
+				const auto& layer = plan.layers[ static_cast< size_t >( l.layer + k ) ];
+				if( layer.image != l.index || layer.frame != k )
+					contiguous = false;
+			}
+			if( img.Animated() ? l.frameMs.size() != img.frames.size() : !l.frameMs.empty() )
+				timed = false;
+
+			// The artwork's box in its layer has the artwork's shape, give or
+			// take the whole pixel PlaceIn rounds to, and holds the trim box.
+			const float w = ( l.imageX1 - l.imageX0 ) * static_cast< float >( plan.layerSize );
+			const float h = ( l.imageY1 - l.imageY0 ) * static_cast< float >( plan.layerSize );
+			if( std::fabs( w / h - img.aspect ) > img.aspect * 2.0f / std::min( w, h ) )
+				boxes = false;
+			if( l.trimX0 < l.imageX0 - 1e-6f || l.trimX1 > l.imageX1 + 1e-6f || l.trimY0 < l.imageY0 - 1e-6f ||
+				l.trimY1 > l.imageY1 + 1e-6f )
+				boxes = false;
+		}
+		Check( contiguous, "a logo's frames are the layers straight after its first" );
+		Check( timed, "the GIF carries its frame delays, and a still none" );
+		Check( boxes, "every logo's image box has its own aspect and holds its trim box" );
+
+		const Logo* wide = nullptr;
+		for( const Logo& l : plan.logos )
+			if( l.name == "bravo_wide.png" )
+				wide = &l;
+		Check( wide && std::fabs( wide->imageX1 - wide->imageX0 - 1.0f ) < 1e-6f &&
+				   std::fabs( ( wide->imageY1 - wide->imageY0 ) - 0.25f ) < 0.01f,
+			   "a 4:1 wordmark spans its square layer's width and a quarter of its height" );
+
+		// No room: a GPU with two layers to spare cannot hold three more frames.
+		// The GIF is drawn as its first frame, and the note says why.
+		const AtlasPlan tight = PlanAtlas( images, 8192, static_cast< int >( images.size() ) + 2 );
+		Check( tight.layers.size() == images.size() && tight.stilled == 1 && tight.animated == 0,
+			   "with no room for its frames the GIF is one layer" );
+		bool stillLogo = true;
+		for( const Logo& l : tight.logos )
+			if( l.frameMs.size() > 1 )
+				stillLogo = false;
+		Check( stillLogo, "and a still as far as the layout knows" );
+		Check( tight.note.find( "drawn still" ) != std::string::npos, "and the note says so" );
+		printf( "    note: %s\n", plan.note.c_str() );
+		printf( "    note: %s\n", tight.note.c_str() );
+
+		// The byte budget. A layer is the size of the folder's largest logo, so
+		// at 2048px every frame is 16 MB: fifteen past the first fit in 256 MB
+		// and nineteen do not. Planning reads sizes and delays, not pixels.
+		auto big = []( int frames ) {
+			Image img;
+			img.name   = "big.gif";
+			img.width  = 2048;
+			img.height = 2048;
+			img.frames.resize( static_cast< size_t >( frames ) );
+			return img;
+		};
+		std::vector< Image > fits, over;
+		fits.push_back( big( 16 ) );
+		over.push_back( big( 20 ) );
+		Check( PlanAtlas( fits, 8192, 2048 ).animated == 1, "a 16-frame GIF at 2048px fits the frame budget" );
+		Check( PlanAtlas( over, 8192, 2048 ).stilled == 1, "a 20-frame one does not, and is drawn still" );
 	}
 
 	printf( "the silent failure\n" );

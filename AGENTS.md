@@ -89,18 +89,24 @@ What is the plugin's and what is not:
   spliced by `demo/tools/check_shaders.py --write`; verify fails on a changed
   character.
 - **The CPU half is a port** (`demo/port.js`): ScanFolder's rules, the trim,
-  Atlas's geometry and blit, Fill, Layout, Mat4, Hash and Controls.h, in float
-  arithmetic. `demo/tools/crosscheck/crosscheck.sh` (run by verify) holds Fill,
-  Layout and Controls to the C++: schedules and every integer identical, floats
-  within 1e-6 (V8's sin/cos/tan/pow against Apple's libm). Change one, change
+  AtlasPlan and Atlas's blit, Fill, Layout, Mat4, Hash and Controls.h, in float
+  arithmetic. `demo/tools/crosscheck/crosscheck.sh` (run by verify) holds
+  AtlasPlan, Fill, Layout and Controls to the C++: plans, schedules and every
+  integer identical, floats within 1e-6 (V8's sin/cos/tan/pow against Apple's
+  libm), and the plugin's arm64 build within 1e-2 of its x86_64 arithmetic
+  (fused multiply-adds; Twinkle and Fade differ by up to 0.004 at a thousand
+  seconds, a cube cell on the wrong slice by a whole cell). Change one, change
   the other. `crosscheck.sh --frames DIR` also renders the real plugin class
   and the page (headless Chrome, SwiftShader) at nineteen settings and writes
-  side-by-side PNGs; on 2026-10-28 every frame agreed on where the wall is to
-  97% or better, with a mean difference under 0.7/255.
-- **Not ported:** stb_image and nanosvg (the browser decodes; no TGA or PSD; the
-  page removes live `<text>` from an SVG because nanosvg draws none, but the
-  browser still draws the clip paths, masks and filters nanosvg drops), the
-  Clock's seconds-or-milliseconds vote, and Diag's log. A page cannot read the
+  side-by-side PNGs; on 2026-10-28, after the layout fixes below, every frame
+  agreed on where the wall is to 97% or better, with a mean difference under
+  0.7/255.
+- **Not ported:** stb_image and nanosvg (the browser decodes; no TGA or PSD; a
+  GIF's frames come from WebCodecs' `ImageDecoder`, and a browser without one
+  shows the first frame and says so; the page removes live `<text>` from an SVG
+  because nanosvg draws none, but the browser still draws the clip paths, masks
+  and filters nanosvg drops), the Clock's seconds-or-milliseconds vote, and
+  Diag's log. A page cannot read the
   folder around a picked file, so Logos is a folder/files picker and a drop,
   and Folder Override does nothing.
 
@@ -108,23 +114,45 @@ What is the plugin's and what is not:
 what the plugin does -- the crosscheck matched each against the real class. Fix
 them in the plugin first, then in the port, never the port alone:
 
-- **Fit (the default), Fill and Stretch distort any logo that is not square.**
-  Atlas pads each logo into a square layer, but FitUv maps the whole layer at
-  the logo's own aspect, so a 4:1 wordmark is drawn at about 16:1. Trim margins
-  uses the trim box and is right.
-- **Scroll's wrap-around copies are drawn unfitted.** BuildLayout copies the
-  cell into `ghosts` before FitUv and the edge flag are set, so the mark at
-  each scrolling edge shows the whole layer stretched, with no edge treatment.
-- **An animated GIF never animates.** The atlas holds frame 0 only and nothing
-  reads `CellTransform::frame`. The README says animated GIFs play.
-- **On the cube, a two-cell wordmark sits on a slice boundary.** Its centre is
-  exactly between two slices, so which one it turns with is decided by
-  rounding, and the arm64 build (fused multiply-adds) and the x86_64 build
-  disagree (the crosscheck reports it). The page follows x86_64.
 - **With a hero block, the schedule always says PARITY NOT EXACT (0..N).** The
   hero's logo is out of the rotation and still counted, with 0 placements, so
   `exactParity` is false whatever the wall. The plugin never shows that note;
   the page prints it under the picture.
+- **On the cube, a move through half of a two-cell wordmark tears it.** The
+  wordmark is one quad and turns with the slice holding its left-hand cell, so
+  when only that slice turns it carries the right half along: the cell it
+  leaves is bare and the cell it lands on is drawn twice, until the solve
+  brings it back. `gdtest_layout` counts it (thousands of samples in its
+  reference cube). The real fix is two stickers, a half each, which changes
+  the picture at rest (Grid Lines would draw a line through the wordmark) --
+  a design call, so it is not made.
+- **A one-pixel line at alpha ~25 down a cell's edge, where the edge of the
+  logo's layer meets it.** The cell shader's `Tap()` samples inside a branch,
+  so a 2x2 pixel quad straddling the layer's edge has no defined derivatives
+  and reads the 1x1 mip. `gdtest_render` measures ink above alpha 128 to step
+  round it. A fix is in `source/Shaders.cpp`, so it is spliced into the page by
+  `check_shaders.py --write`.
+
+Fixed on 2026-10-28, after v0.2.3 and not yet released; each has a check that
+fails on the old code, and the port follows:
+
+- **Fit (the default), Fill and Stretch squashed every non-square logo.** The
+  atlas pads each logo into a square layer, and FitUv mapped the whole layer at
+  the logo's own aspect: a 4:1 wordmark came out at 16:1 (bravo_wide.png's ink,
+  9.6:1 in the file, at 36.9:1 on the wall). They now start from
+  `Logo::imageX0..imageY1`, the artwork's box in its layer.
+- **Scroll's wrap-around copies were drawn unfitted.** BuildLayout copied the
+  cell into `ghosts` before the fit, the frame and the edge flag were set; it
+  copies the finished cell now.
+- **An animated GIF never animated.** `AtlasPlan.cpp` gives each frame a layer,
+  inside a 256 MB budget for frames past the first (a GIF that does not fit is
+  drawn still, and the note says so), `FrameAt` picks the frame from the GIF's
+  own delays, and the trim spans every frame. The page decodes the frames with
+  WebCodecs' `ImageDecoder` and shows frame 0 where a browser has none.
+- **On the cube, arm64 and x86_64 turned a two-cell wordmark with different
+  slices.** Its centre is on a slice boundary; slice membership is now tested
+  at the centre of its first cell. The crosscheck now REQUIRES the arm64 build
+  to agree with the x86_64 arithmetic within a hundredth, which it did not.
 
 ## Ground rules carried from the fleet
 

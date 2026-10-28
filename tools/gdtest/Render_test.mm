@@ -8,8 +8,15 @@
 #include <OpenGL/OpenGL.h>
 #include <OpenGL/gl3.h>
 
+#include <unistd.h>
+
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -84,6 +91,84 @@ std::vector< uint8_t > RenderAt( GridironPlugin& p, const Target& t, double seco
 	p.SetTime( seconds );
 	p.ProcessOpenGL( &gl );
 	return ReadBack( t );
+}
+
+/// A folder holding a copy of one fixture and nothing else, so a wall can be
+/// built from exactly that logo. Empty on failure.
+std::string LoneFolder( const std::string& fixtures, const std::string& name )
+{
+	const char* tmp  = std::getenv( "TMPDIR" );
+	std::string base = std::string( tmp != nullptr && *tmp != '\0' ? tmp : "/tmp" );
+	if( base.back() != '/' )
+		base += '/';
+	std::string pattern = base + "gdtest_render.XXXXXX";
+	if( mkdtemp( &pattern[ 0 ] ) == nullptr )
+		return "";
+
+	std::ifstream in( fixtures + "/" + name, std::ios::binary );
+	std::ofstream out( pattern + "/" + name, std::ios::binary );
+	out << in.rdbuf();
+	return in && out ? pattern : "";
+}
+
+void RemoveLoneFolder( const std::string& folder, const std::string& name )
+{
+	std::remove( ( folder + "/" + name ).c_str() );
+	rmdir( folder.c_str() );
+}
+
+/// The bounding box of the solid ink, in pixels.
+///
+/// Solid, alpha above a half: the cell shader samples inside a branch, so where
+/// a cell edge meets a layer edge the 2x2 pixel quad straddling it has no
+/// defined derivatives and reads the 1x1 mip -- a one-pixel line at alpha ~25
+/// down the side of the cell, which is not the logo and is not what is
+/// measured here.
+struct InkBox
+{
+	int x0 = 0, y0 = 0, x1 = -1, y1 = -1;
+	int Width() const { return x1 - x0 + 1; }
+	int Height() const { return y1 - y0 + 1; }
+	bool Any() const { return x1 >= x0 && y1 >= y0; }
+};
+
+InkBox InkOf( const std::vector< uint8_t >& px )
+{
+	InkBox b;
+	b.x0 = kW;
+	b.y0 = kH;
+	for( int y = 0; y < kH; ++y )
+		for( int x = 0; x < kW; ++x )
+			if( px[ ( static_cast< size_t >( y ) * kW + x ) * 4 + 3 ] > 128 )
+			{
+				b.x0 = std::min( b.x0, x );
+				b.x1 = std::max( b.x1, x );
+				b.y0 = std::min( b.y0, y );
+				b.y1 = std::max( b.y1, y );
+			}
+	return b;
+}
+
+/// Bring a fresh plugin up on `folder` as a 1x1 wall: spin on the wall clock,
+/// in seconds and paced, until the folder has landed and the Clock has locked
+/// to seconds (four agreeing frames), so SetTime is then plain seconds.
+void SettleLone( GridironPlugin& p, const Target& t, const std::string& folder, const std::string& name )
+{
+	FFGLViewportStruct vp = { 0, 0, kW, kH };
+	p.InitGL( &vp );
+	p.SetFloatParameter( PT_COLUMNS, 1.0f );
+	p.SetFloatParameter( PT_ROWS, 1.0f );
+	p.SetTextParameter( PT_FOLDER_FILE, ( folder + "/" + name ).c_str() );
+
+	const auto start = std::chrono::steady_clock::now();
+	for( int i = 0; i < 400; ++i )
+	{
+		const double now = std::chrono::duration< double >( std::chrono::steady_clock::now() - start ).count();
+		const auto   px  = RenderAt( p, t, now );
+		std::this_thread::sleep_for( std::chrono::milliseconds( 20 ) );
+		if( i >= 10 && LitPixels( px ) > 0 )
+			break;
+	}
 }
 } // namespace
 
@@ -442,6 +527,97 @@ int main( int argc, char** argv )
 		while( glGetError() != GL_NO_ERROR )
 		{
 		}
+	}
+
+	printf( "a wordmark is drawn at its own shape\n" );
+	{
+		// The atlas pads every logo into a square layer. Fit, Fill and Stretch
+		// mapped that whole square at the logo's aspect, so bravo_wide.png, a
+		// 4:1 wordmark, was drawn about four times too flat -- by default, on
+		// every wall, since v0.1.0. Measured here on the real plugin, alone on
+		// a 1x1 wall, against the ink box the decoder found in the file.
+		const std::string fixtures = argv[ 1 ];
+		const std::string name     = "bravo_wide.png";
+		const std::string folder   = LoneFolder( fixtures, name );
+		Check( !folder.empty(), "a scratch folder holding bravo_wide.png alone" );
+
+		const Image img = Decode( fixtures + "/" + name, 512 );
+		const float inkW = ( img.trimX1 - img.trimX0 ) * static_cast< float >( img.width );
+		const float inkH = ( img.trimY1 - img.trimY0 ) * static_cast< float >( img.height );
+
+		GridironPlugin lone;
+		SettleLone( lone, target, folder, name );
+
+		// The cell is the whole frame less the padding.
+		const float cellW = static_cast< float >( kW ) * ( 1.0f - CellPad( 0.12f ) );
+		const float cellH = static_cast< float >( kH ) * ( 1.0f - CellPad( 0.12f ) );
+
+		lone.SetFloatParameter( PT_FIT, 0.0f );// Fit
+		RenderAt( lone, target, 10.0 );
+		const InkBox fit = InkOf( RenderAt( lone, target, 10.0 ) );
+		const float  fitAspect = static_cast< float >( fit.Width() ) / static_cast< float >( std::max( fit.Height(), 1 ) );
+		Check( fit.Any() && std::fabs( fitAspect / ( inkW / inkH ) - 1.0f ) < 0.06f,
+			   "Fit draws the ink at the file's own shape" );
+		printf( "    Fit: ink %dx%d px, %.2f:1 drawn, %.2f:1 in the file\n", fit.Width(), fit.Height(), fitAspect, inkW / inkH );
+
+		lone.SetFloatParameter( PT_FIT, 1.0f );// Fill
+		RenderAt( lone, target, 10.0 );
+		const InkBox fill = InkOf( RenderAt( lone, target, 10.0 ) );
+		// A 4:1 mark covering a 16:9 cell is as tall as the cell and cropped at
+		// the sides, so its ink is the file's ink fraction of the cell height.
+		Check( fill.Any() && std::fabs( static_cast< float >( fill.Height() ) / ( cellH * inkH / static_cast< float >( img.height ) ) - 1.0f ) < 0.05f,
+			   "Fill makes the artwork as tall as the cell" );
+		Check( std::fabs( static_cast< float >( fill.Width() ) / cellW - 1.0f ) < 0.02f, "and crops it at the sides" );
+		printf( "    Fill: ink %dx%d px in a %.0fx%.0f cell\n", fill.Width(), fill.Height(), cellW, cellH );
+
+		lone.SetFloatParameter( PT_FIT, 3.0f );// Stretch
+		RenderAt( lone, target, 10.0 );
+		const InkBox stretch = InkOf( RenderAt( lone, target, 10.0 ) );
+		Check( stretch.Any() &&
+				   std::fabs( static_cast< float >( stretch.Width() ) / ( cellW * inkW / static_cast< float >( img.width ) ) - 1.0f ) < 0.04f &&
+				   std::fabs( static_cast< float >( stretch.Height() ) / ( cellH * inkH / static_cast< float >( img.height ) ) - 1.0f ) < 0.04f,
+			   "Stretch spreads the artwork, not its padded layer, over the cell" );
+		printf( "    Stretch: ink %dx%d px\n", stretch.Width(), stretch.Height() );
+
+		Check( glGetError() == GL_NO_ERROR, "and no GL error" );
+		lone.DeInitGL();
+		RemoveLoneFolder( folder, name );
+	}
+
+	printf( "an animated GIF plays\n" );
+	{
+		// The atlas held frame 0 and nothing read the frame index, so the wall
+		// showed delta_anim.gif's first frame for ever. Its four frames are 120
+		// ms each: four moments 120 ms apart must be four different pictures,
+		// and a loop of the animation later the first one again.
+		const std::string fixtures = argv[ 1 ];
+		const std::string name     = "delta_anim.gif";
+		const std::string folder   = LoneFolder( fixtures, name );
+		Check( !folder.empty(), "a scratch folder holding delta_anim.gif alone" );
+
+		GridironPlugin lone;
+		SettleLone( lone, target, folder, name );
+
+		std::set< std::vector< uint8_t > > pictures;
+		std::vector< uint8_t >             first;
+		for( int k = 0; k < 4; ++k )
+		{
+			const double t = 100.06 + 0.12 * k;
+			RenderAt( lone, target, t );
+			const auto px = RenderAt( lone, target, t );
+			if( k == 0 )
+				first = px;
+			pictures.insert( px );
+		}
+		Check( pictures.size() == 4, "four moments a frame apart are four different pictures" );
+		printf( "    %zu different pictures\n", pictures.size() );
+
+		RenderAt( lone, target, 100.06 + 0.48 );
+		Check( RenderAt( lone, target, 100.06 + 0.48 ) == first, "and one loop later it is back on the first" );
+
+		Check( glGetError() == GL_NO_ERROR, "and no GL error" );
+		lone.DeInitGL();
+		RemoveLoneFolder( folder, name );
 	}
 
 	printf( "teardown\n" );

@@ -72,13 +72,19 @@ Mat4 FaceRotation( int face )
 
 /// Map cell-local 0..1 UV onto the logo's layer, honouring the fit mode.
 ///
-/// The layer holds the artwork stretched to its full extent; `trim` is the part
-/// of it that is actually opaque. Everything here is arithmetic on those two
-/// rectangles, and the shader does nothing but `uv * scale + offset`.
+/// The layer holds the artwork centred at its own aspect, padded square; `image`
+/// is the rectangle the artwork occupies and `trim` the part of that which is
+/// actually opaque. Everything here is arithmetic on those two rectangles, and
+/// the shader does nothing but `uv * scale + offset`.
+///
+/// Fit, Fill and Stretch start from the image box, never the whole layer. The
+/// whole layer is square whatever the logo is, so fitting it "at the logo's
+/// aspect" squashed a 4:1 wordmark to about 16:1 -- the default fit, on every
+/// wall with a non-square logo in it, from v0.1.0 to v0.2.3.
 void FitUv( Fit fit, float cellAspect, const Logo& logo, CellTransform& out )
 {
 	// The sub-rectangle of the layer we intend to show, and its aspect.
-	float rx0 = 0.0f, ry0 = 0.0f, rx1 = 1.0f, ry1 = 1.0f;
+	float rx0 = logo.imageX0, ry0 = logo.imageY0, rx1 = logo.imageX1, ry1 = logo.imageY1;
 	float contentAspect = logo.aspect;
 
 	if( fit == Fit::Trim )
@@ -146,6 +152,30 @@ void FillGrid( Mode mode, int columns, int rows, int& outColumns, int& outRows )
 	}
 	outColumns = columns;
 	outRows    = rows;
+}
+
+int FrameAt( const Logo& logo, float timeSeconds )
+{
+	if( logo.frameMs.size() < 2 )
+		return 0;
+
+	long long cycle = 0;
+	for( int ms : logo.frameMs )
+		cycle += std::max( ms, 1 );
+
+	// Whole milliseconds, wrapped into one loop of the animation. Integer from
+	// here on, so the frame boundaries fall in the same place on every build.
+	const long long now  = static_cast< long long >( std::floor( timeSeconds * 1000.0f ) );
+	long long       into = ( ( now % cycle ) + cycle ) % cycle;
+
+	for( size_t i = 0; i < logo.frameMs.size(); ++i )
+	{
+		const long long ms = std::max( logo.frameMs[ i ], 1 );
+		if( into < ms )
+			return static_cast< int >( i );
+		into -= ms;
+	}
+	return static_cast< int >( logo.frameMs.size() ) - 1;
 }
 
 std::vector< CubeMove > MoveSequence( uint32_t seed, int n )
@@ -395,6 +425,10 @@ LayoutResult BuildLayout( const Schedule& schedule,
 		const float spanW = static_cast< float >( p.colSpan );
 		const float spanH = static_cast< float >( p.rowSpan );
 
+		// The flat wall's cell centre and size, kept for the wrap-around copies
+		// made once the cell is finished.
+		float cx = 0.0f, cy = 0.0f, scaleX = 0.0f, scaleY = 0.0f;
+
 		if( cube )
 		{
 			const int face    = p.row / n;
@@ -412,8 +446,20 @@ LayoutResult BuildLayout( const Schedule& schedule,
 			// Replay the moves. Slice membership is tested against where the
 			// cell has got to, not where it started -- that is what makes this a
 			// Rubik's cube rather than six independently spinning faces.
-			Vec3 pos   = TransformPoint( faceRot, { x, y, 0.5f } );
-			Mat4 accum = Mat4::Identity();
+			//
+			// The point tested is the centre of the placement's FIRST cell, not
+			// the centre of the quad. For a single cell they are the same point.
+			// For a wordmark across two cells the quad's centre is exactly on
+			// the boundary between two slices, so which one it turned with came
+			// down to the last bit of a rounding -- and the arm64 build, which
+			// fuses multiply-adds, rounded it the other way from the x86_64
+			// build. A cell centre is half a cell from any boundary, so the
+			// wordmark now turns with the slice that holds its left-hand cell,
+			// on every build.
+			const float sx    = ( static_cast< float >( faceCol ) + 0.5f ) * cs - 0.5f;
+			const float sy    = 0.5f - ( static_cast< float >( faceRow ) + 0.5f ) * cs;
+			Vec3        pos   = TransformPoint( faceRot, { sx, sy, 0.5f } );
+			Mat4        accum = Mat4::Identity();
 
 			for( int i = 0; i < moveIndex; ++i )
 			{
@@ -433,8 +479,8 @@ LayoutResult BuildLayout( const Schedule& schedule,
 		}
 		else
 		{
-			float cx = ( static_cast< float >( p.col ) + 0.5f * spanW ) * cellW - wallW * 0.5f;
-			float cy = wallH * 0.5f - ( static_cast< float >( p.row ) + 0.5f * spanH ) * cellH;
+			cx = ( static_cast< float >( p.col ) + 0.5f * spanW ) * cellW - wallW * 0.5f;
+			cy = wallH * 0.5f - ( static_cast< float >( p.row ) + 0.5f * spanH ) * cellH;
 
 			// The slot machine: each column its own reel, decelerating to a stop
 			// on a whole cell. The travel is an integer number of cells, so
@@ -480,56 +526,20 @@ LayoutResult BuildLayout( const Schedule& schedule,
 			if( options.scrollY != 0.0f )
 				cy = WrapCentred( cy + options.scrollY * cellH * timeSeconds, wallH );
 
-			const float scaleX = cellW * spanW * ( 1.0f - pad );
-			const float scaleY = cellH * spanH * ( 1.0f - pad );
+			scaleX = cellW * spanW * ( 1.0f - pad );
+			scaleY = cellH * spanH * ( 1.0f - pad );
 
 			c.model = Translate( cx, cy, 0.0f ) * Scale( scaleX, scaleY, 1.0f );
-
-			// Wrapping alone leaves a hole. The cells cover exactly one wall and
-			// no more, so the moment they shift by any fraction of a cell there
-			// is that much bare canvas at the trailing edge -- which on a
-			// sponsor board is a strip of nothing marching across the screen.
-			//
-			// So a cell near an edge is drawn a second time one whole wall away,
-			// where it fills that hole. The copy is clipped by the projection
-			// when it is not needed, which is cheaper than working out whether
-			// it is.
-			if( options.scrollX != 0.0f || options.scrollY != 0.0f )
-			{
-				for( int gy = -1; gy <= 1; ++gy )
-				{
-					for( int gx = -1; gx <= 1; ++gx )
-					{
-						if( gx == 0 && gy == 0 )
-							continue;// the cell itself, already pushed below
-						if( gx != 0 && options.scrollX == 0.0f )
-							continue;
-						if( gy != 0 && options.scrollY == 0.0f )
-							continue;
-
-						const float gcx = cx + static_cast< float >( gx ) * wallW;
-						const float gcy = cy + static_cast< float >( gy ) * wallH;
-
-						// Only if some part of it lands on the canvas.
-						if( std::abs( gcx ) - scaleX * 0.5f > wallW * 0.5f )
-							continue;
-						if( std::abs( gcy ) - scaleY * 0.5f > wallH * 0.5f )
-							continue;
-
-						CellTransform g = c;
-						g.model         = Translate( gcx, gcy, 0.0f ) * Scale( scaleX, scaleY, 1.0f );
-						ghosts.push_back( g );
-					}
-				}
-			}
 		}
 
 		// ---- which frame, for an animated logo -----------------------------
-		c.frame = static_cast< int >( std::floor( timeSeconds * 10.0f ) );
+		// After the slot machine, which can hand the cell a different logo.
+		const Logo& logoData = logos[ static_cast< size_t >( c.logo ) ];
+		c.frame              = FrameAt( logoData, timeSeconds );
 
 		// ---- fit ------------------------------------------------------------
 		const float thisCellAspect = cellAspect * ( spanW / spanH );
-		FitUv( options.fit, thisCellAspect, logos[ static_cast< size_t >( c.logo ) ], c );
+		FitUv( options.fit, thisCellAspect, logoData, c );
 
 		// ---- does the edge treatment reach this cell ------------------------
 		switch( options.edgeScope )
@@ -541,6 +551,50 @@ LayoutResult BuildLayout( const Schedule& schedule,
 		}
 
 		out.cells.push_back( c );
+
+		// ---- wrap-around copies, for whole-grid scroll ----------------------
+		// Wrapping alone leaves a hole. The cells cover exactly one wall and no
+		// more, so the moment they shift by any fraction of a cell there is that
+		// much bare canvas at the trailing edge -- which on a sponsor board is a
+		// strip of nothing marching across the screen.
+		//
+		// So a cell near an edge is drawn a second time one whole wall away,
+		// where it fills that hole. The copy is clipped by the projection when
+		// it is not needed, which is cheaper than working out whether it is.
+		//
+		// Copied HERE, from the finished cell. They were once copied where the
+		// position is worked out, before the fit, the frame and the edge flag
+		// were set, so the mark entering at each scrolling edge was the whole
+		// layer stretched over the cell with no edge treatment -- and a moment
+		// later, once it had wrapped, it snapped to the right shape.
+		if( !cube && ( options.scrollX != 0.0f || options.scrollY != 0.0f ) )
+		{
+			for( int gy = -1; gy <= 1; ++gy )
+			{
+				for( int gx = -1; gx <= 1; ++gx )
+				{
+					if( gx == 0 && gy == 0 )
+						continue;// the cell itself, already pushed
+					if( gx != 0 && options.scrollX == 0.0f )
+						continue;
+					if( gy != 0 && options.scrollY == 0.0f )
+						continue;
+
+					const float gcx = cx + static_cast< float >( gx ) * wallW;
+					const float gcy = cy + static_cast< float >( gy ) * wallH;
+
+					// Only if some part of it lands on the canvas.
+					if( std::abs( gcx ) - scaleX * 0.5f > wallW * 0.5f )
+						continue;
+					if( std::abs( gcy ) - scaleY * 0.5f > wallH * 0.5f )
+						continue;
+
+					CellTransform g = c;
+					g.model         = Translate( gcx, gcy, 0.0f ) * Scale( scaleX, scaleY, 1.0f );
+					ghosts.push_back( g );
+				}
+			}
+		}
 	}
 
 	out.cells.insert( out.cells.end(), ghosts.begin(), ghosts.end() );

@@ -41,11 +41,11 @@ is spliced by this script and never typed.
 ------------------------------------------------------------------- what it cannot
 
 Nothing here checks the PORTED half. The folder rules and trim (Library.cpp),
-the atlas geometry (Atlas.cpp), the arrangement (Fill.cpp), the layout
+the atlas plan (AtlasPlan.cpp), the arrangement (Fill.cpp), the layout
 (Layout.cpp, Mat4.h, Hash.h), the mappings (Controls.h) and the CPU half of
 GridironPlugin::ProcessOpenGL are a hand translation in demo/plugin.js.
-demo/tools/crosscheck/, which verify.sh also runs, holds Fill and Layout to the
-C++ number for number. When you change one of those, change the port too.
+demo/tools/crosscheck/, which verify.sh also runs, holds the atlas plan, Fill
+and Layout to the C++ number for number. When you change one of those, change the port too.
 """
 import os
 import re

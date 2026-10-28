@@ -4,7 +4,7 @@
  * The plugin is GLSL plus a good deal of C++ that decides what the GLSL draws:
  * which files in the folder count and in what order (Library.cpp), where the
  * opaque part of each logo is (Library.cpp's trim), how each logo sits in its
- * texture-array layer (Atlas.cpp), which logo goes in which cell and when
+ * texture-array layer (AtlasPlan.cpp), which logo goes in which cell and when
  * (Fill.cpp), and where every cell is at a given moment, flat or on a cube
  * (Layout.cpp, Mat4.h, Hash.h), with the host's 0..1 turned into real units by
  * Controls.h. None of that can run in a browser as it stands, so it is
@@ -488,11 +488,17 @@ function faceRotation(face) {
   }
 }
 
+/**
+ * FitUv. Fit, Fill and Stretch start from the artwork's box in its layer, not
+ * the whole square layer -- mapping the whole layer at the logo's aspect is what
+ * drew a 4:1 wordmark at 16:1 up to the plugin's v0.2.3. A logo without the
+ * box fills its layer, as the C++ Logo's defaults say.
+ */
 function fitUv(fit, cellAspect, logo, out) {
-  let rx0 = 0;
-  let ry0 = 0;
-  let rx1 = 1;
-  let ry1 = 1;
+  let rx0 = logo.imageX0 ?? 0;
+  let ry0 = logo.imageY0 ?? 0;
+  let rx1 = logo.imageX1 ?? 1;
+  let ry1 = logo.imageY1 ?? 1;
   let contentAspect = logo.aspect;
 
   if (fit === FIT.Trim) {
@@ -542,6 +548,26 @@ export function fillGrid(mode, columns, rows) {
     return [n, n * 6];
   }
   return [columns, rows];
+}
+
+/**
+ * FrameAt: which frame of an animated logo shows at `timeSeconds`, from its own
+ * delays (`frameMs`), looped. Whole milliseconds and integer arithmetic from
+ * there, as the C++ does, so the frame boundaries fall in the same places.
+ */
+export function frameAt(logo, timeSeconds) {
+  const frameMs = logo.frameMs ?? [];
+  if (frameMs.length < 2) return 0;
+  let cycle = 0;
+  for (const ms of frameMs) cycle += Math.max(ms, 1);
+  const now = Math.floor(f(f(timeSeconds) * 1000));
+  let into = ((now % cycle) + cycle) % cycle;
+  for (let i = 0; i < frameMs.length; i += 1) {
+    const ms = Math.max(frameMs[i], 1);
+    if (into < ms) return i;
+    into -= ms;
+  }
+  return frameMs.length - 1;
 }
 
 export function moveSequence(seed, n) {
@@ -710,6 +736,13 @@ export function buildLayout(schedule, logos, columns, rows, timeSeconds, o) {
     const spanW = p.colSpan;
     const spanH = p.rowSpan;
 
+    // The flat wall's cell centre and size, kept for the wrap-around copies
+    // made once the cell is finished.
+    let cx = 0;
+    let cy = 0;
+    let scaleX = 0;
+    let scaleY = 0;
+
     if (cube) {
       const face = Math.trunc(p.row / n);
       const faceRow = p.row % n;
@@ -723,7 +756,12 @@ export function buildLayout(schedule, logos, columns, rows, timeSeconds, o) {
       const base = mul(mul(faceRot, translate(x, y, 0.5)),
         scale(f(f(cs * spanW) * f(1 - pad)), f(f(cs * spanH) * f(1 - pad)), 1));
 
-      let pos = transformPoint(faceRot, { x, y, z: 0.5 });
+      // Slice membership by the centre of the placement's FIRST cell: a
+      // two-cell wordmark's own centre is on a slice boundary, and the
+      // plugin's arm64 and x86_64 builds once rounded it to different slices.
+      const sx = f(f(f(faceCol + 0.5) * cs) - 0.5);
+      const sy = f(0.5 - f(f(faceRow + 0.5) * cs));
+      let pos = transformPoint(faceRot, { x: sx, y: sy, z: 0.5 });
       let accum = identity();
 
       for (let i = 0; i < moveIndex; i += 1) {
@@ -741,8 +779,8 @@ export function buildLayout(schedule, logos, columns, rows, timeSeconds, o) {
 
       c.model = mul(accum, base);
     } else {
-      let cx = f(f(f(p.col + f(0.5 * spanW)) * cellW) - f(wallW * 0.5));
-      let cy = f(f(wallH * 0.5) - f(f(p.row + f(0.5 * spanH)) * cellH));
+      cx = f(f(f(p.col + f(0.5 * spanW)) * cellW) - f(wallW * 0.5));
+      cy = f(f(wallH * 0.5) - f(f(p.row + f(0.5 * spanH)) * cellH));
 
       if (o.mode === MODE.SlotMachine && !p.hero) {
         const key = p.col;
@@ -770,42 +808,22 @@ export function buildLayout(schedule, logos, columns, rows, timeSeconds, o) {
       if (o.scrollX !== 0) cx = wrapCentred(f(cx + f(f(o.scrollX * cellW) * timeSeconds)), wallW);
       if (o.scrollY !== 0) cy = wrapCentred(f(cy + f(f(o.scrollY * cellH) * timeSeconds)), wallH);
 
-      const scaleX = f(f(cellW * spanW) * f(1 - pad));
-      const scaleY = f(f(cellH * spanH) * f(1 - pad));
+      scaleX = f(f(cellW * spanW) * f(1 - pad));
+      scaleY = f(f(cellH * spanH) * f(1 - pad));
 
       c.model = mul(translate(cx, cy, 0), scale(scaleX, scaleY, 1));
-
-      // The wrap-around copies. Copied from `c` HERE, as the plugin copies
-      // them -- before the frame, the fit and the edge flag are set below --
-      // so a copy carries the default UV transform (the whole layer, i.e.
-      // Stretch) and no edge treatment. That is what the plugin draws.
-      if (o.scrollX !== 0 || o.scrollY !== 0) {
-        for (let gy = -1; gy <= 1; gy += 1) {
-          for (let gx = -1; gx <= 1; gx += 1) {
-            if (gx === 0 && gy === 0) continue;
-            if (gx !== 0 && o.scrollX === 0) continue;
-            if (gy !== 0 && o.scrollY === 0) continue;
-
-            const gcx = f(cx + f(gx * wallW));
-            const gcy = f(cy + f(gy * wallH));
-
-            if (f(Math.abs(gcx) - f(scaleX * 0.5)) > f(wallW * 0.5)) continue;
-            if (f(Math.abs(gcy) - f(scaleY * 0.5)) > f(wallH * 0.5)) continue;
-
-            ghosts.push({ ...c, model: mul(translate(gcx, gcy, 0), scale(scaleX, scaleY, 1)) });
-          }
-        }
-      }
     }
 
     // ---- which frame, for an animated logo -----------------------------
-    c.frame = Math.floor(f(timeSeconds * 10));
+    // After the slot machine, which can hand the cell a different logo. A
+    // reel can only have picked up a logo that exists, so the guard never
+    // fires; it is here so a mistake in the port throws nothing.
+    const logoData = logos[c.logo];
+    if (logoData) c.frame = frameAt(logoData, timeSeconds);
 
     // ---- fit ------------------------------------------------------------
-    // A slot-machine reel can only have picked up a logo that exists, so the
-    // guard never fires; it is here so a mistake in the port throws nothing.
     const thisCellAspect = f(cellAspect * f(spanW / spanH));
-    if (logos[c.logo]) fitUv(o.fit, thisCellAspect, logos[c.logo], c);
+    if (logoData) fitUv(o.fit, thisCellAspect, logoData, c);
 
     // ---- does the edge treatment reach this cell ------------------------
     switch (o.edgeScope) {
@@ -816,6 +834,29 @@ export function buildLayout(schedule, logos, columns, rows, timeSeconds, o) {
     }
 
     out.cells.push(c);
+
+    // ---- wrap-around copies, for whole-grid scroll ----------------------
+    // Copied from the FINISHED cell, as the plugin now copies them. Up to its
+    // v0.2.3 they were copied before the fit, the frame and the edge flag were
+    // set, so the mark entering at each scrolling edge was the whole layer
+    // stretched over the cell, with no edge treatment.
+    if (!cube && (o.scrollX !== 0 || o.scrollY !== 0)) {
+      for (let gy = -1; gy <= 1; gy += 1) {
+        for (let gx = -1; gx <= 1; gx += 1) {
+          if (gx === 0 && gy === 0) continue;
+          if (gx !== 0 && o.scrollX === 0) continue;
+          if (gy !== 0 && o.scrollY === 0) continue;
+
+          const gcx = f(cx + f(gx * wallW));
+          const gcy = f(cy + f(gy * wallH));
+
+          if (f(Math.abs(gcx) - f(scaleX * 0.5)) > f(wallW * 0.5)) continue;
+          if (f(Math.abs(gcy) - f(scaleY * 0.5)) > f(wallH * 0.5)) continue;
+
+          ghosts.push({ ...c, model: mul(translate(gcx, gcy, 0), scale(scaleX, scaleY, 1)) });
+        }
+      }
+    }
   }
 
   out.cells.push(...ghosts);
@@ -888,29 +929,39 @@ export function scanUnsupported(text) {
   return u;
 }
 
-/** TrimBounds: the box of pixels with alpha of at least 8/255, or null. */
-export function trimBounds(rgba, w, h) {
+/**
+ * TrimBounds: the box of pixels with alpha of at least 8/255 in ANY of the
+ * frames (each an RGBA array), or null. Every frame, as the plugin now measures
+ * it (up to v0.2.3 it measured frame 0), so an animated GIF's trim holds all of
+ * it.
+ */
+export function trimBounds(frames, w, h) {
   const kAlphaFloor = 8;
   let minX = w;
   let minY = h;
   let maxX = -1;
   let maxY = -1;
-  for (let y = 0; y < h; y += 1) {
-    for (let x = 0; x < w; x += 1) {
-      if (rgba[(y * w + x) * 4 + 3] < kAlphaFloor) continue;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+  for (const rgba of frames) {
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        if (rgba[(y * w + x) * 4 + 3] < kAlphaFloor) continue;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
     }
   }
   if (maxX < minX || maxY < minY) return null;
   return { x0: f(minX / w), y0: f(minY / h), x1: f((maxX + 1) / w), y1: f((maxY + 1) / h) };
 }
 
-/** ComputeTrim, onto an image record {width, height, aspect, rgba}. */
+/**
+ * ComputeTrim, onto an image record {width, height, aspect, frames}, where
+ * `frames` is [{rgba, delayMs}], one entry for a still.
+ */
 export function computeTrim(img) {
-  const b = trimBounds(img.rgba, img.width, img.height) ?? { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const b = trimBounds(img.frames.map((fr) => fr.rgba), img.width, img.height) ?? { x0: 0, y0: 0, x1: 1, y1: 1 };
   img.trimX0 = b.x0;
   img.trimY0 = b.y0;
   img.trimX1 = b.x1;
@@ -957,7 +1008,7 @@ export function loaderNote(fileCount, loadedCount, decoded) {
 }
 
 //===========================================================================
-// Atlas.cpp -- every logo as one layer of a texture array
+// Atlas.cpp and AtlasPlan.cpp -- every logo, a layer a frame, in a texture array
 //===========================================================================
 
 export function chooseLayerSize(cellPixels) {
@@ -978,46 +1029,93 @@ export function placeIn(img, layerSize) {
 }
 
 /**
- * The arithmetic half of Atlas::Begin: the layer size, how many layers, and
- * every logo's geometry in layer space. No GL; plugin.js allocates the array.
+ * AtlasPlan.h's kFrameBudgetBytes: the bytes of layer that animation frames
+ * past the first may claim between them.
  */
-export function atlasGeometry(images, maxSize, maxLayers) {
+export const FRAME_BUDGET_BYTES = 256 * 1024 * 1024;
+
+/**
+ * PlanAtlas: the layer size, what goes in each layer, and every logo's
+ * geometry in layer space -- the arithmetic between Atlas::Begin and Step. No
+ * GL; plugin.js allocates the array. An animated logo is one layer per frame,
+ * straight after its first, while the GPU's layer limit and the frame budget
+ * last, handed out in folder order; one that does not fit is drawn still.
+ */
+export function planAtlas(images, maxSize, maxLayers) {
+  const plan = { layerSize: 0, logos: [], layers: [], animated: 0, stilled: 0, note: '' };
+  if (images.length === 0) return plan;
   if (maxSize <= 0) maxSize = 2048;
   if (maxLayers <= 0) maxLayers = 256;
 
   let longest = 0;
   for (const i of images) longest = Math.max(longest, Math.max(i.width, i.height));
-  const layerSize = Math.min(chooseLayerSize(longest), maxSize);
+  plan.layerSize = Math.min(chooseLayerSize(longest), maxSize);
 
-  let note = '';
-  let layers = images.length;
-  if (layers > maxLayers) {
-    note = `folder has ${layers} images but this GPU allows ${maxLayers} layers; the rest are ignored`;
-    layers = maxLayers;
+  let count = images.length;
+  if (count > maxLayers) {
+    plan.note = `folder has ${count} images but this GPU allows ${maxLayers} layers; the rest are ignored`;
+    count = maxLayers;
   }
 
-  const logos = [];
-  for (let i = 0; i < layers; i += 1) {
+  const perLayer = plan.layerSize * plan.layerSize * 4;
+  let total = count;
+  let spent = 0;
+  const plays = new Array(count).fill(false);
+  for (let i = 0; i < count; i += 1) {
     const img = images[i];
-    const p = placeIn(img, layerSize);
-    const fx = f(p.dw / layerSize);
-    const fy = f(p.dh / layerSize);
-    const ox = f(p.dx / layerSize);
-    const oy = f(p.dy / layerSize);
-    logos.push({
+    if (img.frames.length < 2) continue;
+    const extra = img.frames.length - 1;
+    const bytes = extra * perLayer;
+    if (total + extra <= maxLayers && spent + bytes <= FRAME_BUDGET_BYTES) {
+      plays[i] = true;
+      total += extra;
+      spent += bytes;
+      plan.animated += 1;
+    } else {
+      plan.stilled += 1;
+    }
+  }
+
+  for (let i = 0; i < count; i += 1) {
+    const img = images[i];
+    const p = placeIn(img, plan.layerSize);
+    const fx = f(p.dw / plan.layerSize);
+    const fy = f(p.dh / plan.layerSize);
+    const ox = f(p.dx / plan.layerSize);
+    const oy = f(p.dy / plan.layerSize);
+    const logo = {
       index: i,
       name: img.name,
       aspect: img.aspect,
+      imageX0: ox,
+      imageX1: f(ox + fx),
+      imageY0: oy,
+      imageY1: f(oy + fy),
       trimX0: f(ox + f(img.trimX0 * fx)),
       trimX1: f(ox + f(img.trimX1 * fx)),
       trimY0: f(oy + f(img.trimY0 * fy)),
       trimY1: f(oy + f(img.trimY1 * fy)),
       trimmedAspect: img.trimmedAspect,
-    });
+      layer: plan.layers.length,
+      frameMs: [],
+    };
+    const frames = plays[i] ? img.frames.length : 1;
+    for (let k = 0; k < frames; k += 1) {
+      plan.layers.push({ image: i, frame: k });
+      if (frames > 1) logo.frameMs.push(img.frames[k].delayMs);
+    }
+    plan.logos.push(logo);
   }
 
-  if (!note) note = `${layers} logos at ${layerSize}px`;
-  return { layerSize, layers, logos, note };
+  if (!plan.note) {
+    plan.note = `${count} logos at ${plan.layerSize}px`;
+    if (plan.animated > 0) plan.note += `, ${plan.animated} animated (${plan.layers.length} layers)`;
+  }
+  if (plan.stilled > 0) {
+    const one = plan.stilled === 1;
+    plan.note += `; ${plan.stilled} animated GIF${one ? ' is' : 's are'} drawn still: the atlas has no room for ${one ? 'its' : 'their'} frames`;
+  }
+  return plan;
 }
 
 /** Blit: nearest-neighbour, one image into its rectangle of a layer. */

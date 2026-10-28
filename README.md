@@ -71,7 +71,11 @@ specification, so a folder picker can't be built. Picking any file inside the
 folder is one click in the native dialog and needs no path typing. `Folder Override` takes a literal
 path for anyone driving the plugin from a script.
 
-Accepted: `png` `jpg` `jpeg` `gif` `bmp` `tga` `psd` `svg`. Animated GIFs play.
+Accepted: `png` `jpg` `jpeg` `gif` `bmp` `tga` `psd` `svg`. Animated GIFs play,
+each frame for as long as the file says, with every copy on the wall in step.
+Each frame is a texture layer the size of the folder's largest logo, so frames
+share a 256 MB allowance; a GIF that won't fit in it is drawn as its first frame,
+and the About line tells you so rather than leaving you to wonder.
 
 ## ⚠️ Convert text to outlines before exporting an SVG
 
@@ -167,9 +171,11 @@ composite, spliced unedited from `source/Shaders.cpp` into `demo/shaders.js`
 Everything that decides what they draw is a JavaScript port in `demo/port.js`:
 the folder rules, the trim, the atlas geometry, `Fill.cpp`, `Layout.cpp` and
 the mappings. `demo/tools/crosscheck/` holds the port to the C++ and verify runs
-it: every schedule and every cell's logo identical, every position within a
-millionth. With `--frames` it also renders the real plugin class and the page at
-nineteen settings and compares the pictures.
+it: every atlas plan, every schedule and every cell's logo identical, every
+position within a millionth. It also holds the plugin's arm64 build to its x86_64
+arithmetic within a hundredth, which is how the cube bug below was found and how
+it stays fixed. With `--frames` it also renders the real plugin class and the
+page at nineteen settings and compares the pictures.
 
 What it can't do is decode like the plugin. The browser's decoders stand in for
 stb_image and nanosvg, so TGA and PSD don't load, and an SVG can look better in
@@ -224,6 +230,26 @@ harness and `oxbow selftest` can reach:
 the bundle registers, instantiates, loads a folder and draws a wall, a hero
 block, per-cell line art and a turning cube, with no GL errors, and holds the
 wall on screen under every motion control ten minutes into a composition.
+
+**Fixed on main since v0.2.3, not yet released.** Building the browser demo
+meant porting the layout to JavaScript and checking the port against the C++
+number for number, and that turned up four bugs in the plugin itself:
+
+- **Fit, Fill and Stretch squashed every logo that isn't square.** Each logo
+  sits in a square texture layer, padded, and those three modes stretched the
+  whole square to the logo's shape. A 4:1 wordmark came out at about 16:1. Fit
+  is the default, so that's most walls anyone has built. Trim margins was right
+  all along, which is the only reason nobody's sponsor is a hairline.
+- **Scrolling drew the incoming mark at each edge unfitted**, stretched over its
+  cell with no edge treatment, until it had wrapped and snapped to its real
+  shape.
+- **Animated GIFs never animated**, though this README said they played. They
+  do now.
+- **On the cube, a wordmark across two cells turned with whichever slice a
+  rounding error picked**, and Apple Silicon and Intel picked differently. It
+  now turns with the slice holding its left-hand cell, on both.
+
+Each has a check in the harness that fails on the old code.
 
 What no harness here can tell you is how it behaves in a real composition on
 real hardware, and the pixel-level suite is macOS-only, so on Windows that

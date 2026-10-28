@@ -33,11 +33,44 @@ for (const line of lines) {
   if (t[0] === 'L') {
     const n = Number(t[1]);
     logos = [];
+    let at = 2;
     for (let i = 0; i < n; i += 1) {
-      const v = t.slice(2 + i * 6, 8 + i * 6).map(fromBits);
-      logos.push({ index: i, aspect: v[0], trimX0: v[1], trimY0: v[2], trimX1: v[3], trimY1: v[4], trimmedAspect: v[5] });
+      const v = t.slice(at, at + 10).map(fromBits);
+      const frames = Number(t[at + 10]);
+      const frameMs = t.slice(at + 11, at + 11 + frames).map(Number);
+      at += 11 + frames;
+      logos.push({
+        index: i, aspect: v[0], trimX0: v[1], trimY0: v[2], trimX1: v[3], trimY1: v[4], trimmedAspect: v[5],
+        imageX0: v[6], imageY0: v[7], imageX1: v[8], imageY1: v[9], frameMs,
+      });
     }
     out.push(`L ${n}`);
+  } else if (t[0] === 'A') {
+    const n = Number(t[1]);
+    const maxSize = Number(t[2]);
+    const maxLayers = Number(t[3]);
+    const images = [];
+    let at = 4;
+    for (let i = 0; i < n; i += 1) {
+      const width = Number(t[at]);
+      const height = Number(t[at + 1]);
+      const v = t.slice(at + 2, at + 8).map(fromBits);
+      const frames = Number(t[at + 8]);
+      const frameMs = t.slice(at + 9, at + 9 + frames).map(Number);
+      at += 9 + frames;
+      images.push({
+        name: 'logo', width, height, aspect: v[0], trimX0: v[1], trimY0: v[2], trimX1: v[3], trimY1: v[4], trimmedAspect: v[5],
+        // Planning reads sizes and delays, never pixels.
+        frames: frames > 0 ? frameMs.map((delayMs) => ({ rgba: null, delayMs })) : [{ rgba: null, delayMs: 100 }],
+      });
+    }
+    const plan = P.planAtlas(images, maxSize, maxLayers);
+    out.push(`A ${plan.layerSize} ${plan.layers.length} ${plan.animated} ${plan.stilled} ${plan.note}`);
+    for (const l of plan.logos) {
+      const v = [l.aspect, l.imageX0, l.imageY0, l.imageX1, l.imageY1, l.trimX0, l.trimY0, l.trimX1, l.trimY1, l.trimmedAspect];
+      out.push(`P ${l.index} ${l.layer} ${v.map(bits).join(' ')} ${l.frameMs.length}${l.frameMs.map((ms) => ` ${ms}`).join('')}`);
+    }
+    out.push(`Q${plan.layers.map((x) => ` ${x.image},${x.frame}`).join('')}`);
   } else if (t[0] === 'S') {
     const [cols, rws, mode, seed, noAdj, aspect, equal, hero, heroCols, heroRows, heroLogo] = t.slice(1).map(Number);
     columns = cols;

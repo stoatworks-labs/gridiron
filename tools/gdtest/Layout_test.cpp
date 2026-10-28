@@ -264,6 +264,332 @@ int main()
 			   "fill covers the cell and crops the width instead" );
 	}
 
+	printf( "fit keeps the artwork's own shape\n" );
+	{
+		// The atlas pads every logo into a SQUARE layer, centred and keeping its
+		// aspect, so a 4:1 mark spans its layer's width and the middle quarter
+		// of its height. These logos are built the way PlanAtlas builds them;
+		// what is checked is where the artwork's box lands in the cell.
+		//
+		// Up to v0.2.3, Fit, Fill and Stretch mapped the whole square layer at
+		// the artwork's aspect and ignored where the artwork was in it: a 4:1
+		// wordmark came out at 16:1, by default, on every wall. Only Trim, which
+		// starts from the trim box, was right.
+		auto padded = []( float aspect ) {
+			Logo        l;
+			const float fx  = aspect >= 1.0f ? 1.0f : aspect;
+			const float fy  = aspect >= 1.0f ? 1.0f / aspect : 1.0f;
+			l.aspect        = aspect;
+			l.trimmedAspect = aspect;
+			l.imageX0 = l.trimX0 = ( 1.0f - fx ) * 0.5f;
+			l.imageX1 = l.trimX1 = l.imageX0 + fx;
+			l.imageY0 = l.trimY0 = ( 1.0f - fy ) * 0.5f;
+			l.imageY1 = l.trimY1 = l.imageY0 + fy;
+			return l;
+		};
+
+		bool fitShape = true, fitInside = true, fillShape = true, fillCovers = true, stretchFills = true, trimShape = true;
+		for( float aspect : { 4.0f, 2.5f, 1.0f, 0.6f } )
+		{
+			std::vector< Logo > logos = { padded( aspect ) };
+			FillOptions         fo;
+			const Schedule      sched = BuildSchedule( logos, 1, 1, fo );
+
+			for( float output : { 1.0f, 16.0f / 9.0f, 0.6f, 5.0f } )// a 1x1 wall: the cell is the output's shape
+			{
+				for( Fit fit : { Fit::Fit, Fit::Fill, Fit::Stretch, Fit::Trim } )
+				{
+					LayoutOptions lo;
+					lo.outputAspect = output;
+					lo.fit          = fit;
+					const auto r    = BuildLayout( sched, logos, 1, 1, 0.0f, lo );
+					if( r.cells.size() != 1 )
+					{
+						fitShape = false;
+						continue;
+					}
+					const CellTransform& c = r.cells[ 0 ];
+
+					// Where the artwork box (or the trim box, for Trim) lands in
+					// cell-local 0..1, and the shape it is drawn at on screen.
+					const Logo& l  = logos[ 0 ];
+					const float x0 = fit == Fit::Trim ? l.trimX0 : l.imageX0, x1 = fit == Fit::Trim ? l.trimX1 : l.imageX1;
+					const float y0 = fit == Fit::Trim ? l.trimY0 : l.imageY0, y1 = fit == Fit::Trim ? l.trimY1 : l.imageY1;
+					const float u0 = ( x0 - c.uvOffsetX ) / c.uvScaleX, u1 = ( x1 - c.uvOffsetX ) / c.uvScaleX;
+					const float v0 = ( y0 - c.uvOffsetY ) / c.uvScaleY, v1 = ( y1 - c.uvOffsetY ) / c.uvScaleY;
+					const float drawn = ( u1 - u0 ) * output / ( v1 - v0 );
+					const float eps   = 1e-4f;
+
+					switch( fit )
+					{
+						case Fit::Fit:
+							if( std::fabs( drawn / aspect - 1.0f ) > eps )
+								fitShape = false;
+							// Inside the cell, and touching it on one axis.
+							if( u0 < -eps || u1 > 1.0f + eps || v0 < -eps || v1 > 1.0f + eps ||
+								( std::fabs( u1 - u0 - 1.0f ) > eps && std::fabs( v1 - v0 - 1.0f ) > eps ) )
+								fitInside = false;
+							break;
+						case Fit::Fill:
+							if( std::fabs( drawn / aspect - 1.0f ) > eps )
+								fillShape = false;
+							if( u0 > eps || u1 < 1.0f - eps || v0 > eps || v1 < 1.0f - eps )
+								fillCovers = false;
+							break;
+						case Fit::Stretch:
+							if( std::fabs( u0 ) > eps || std::fabs( u1 - 1.0f ) > eps || std::fabs( v0 ) > eps ||
+								std::fabs( v1 - 1.0f ) > eps )
+								stretchFills = false;
+							break;
+						default:
+							if( std::fabs( drawn / l.trimmedAspect - 1.0f ) > eps )
+								trimShape = false;
+							break;
+					}
+				}
+			}
+		}
+		Check( fitShape, "Fit draws a padded logo at its own aspect (a 4:1 wordmark is 4:1, not 16:1)" );
+		Check( fitInside, "and inside its cell, touching it on one axis" );
+		Check( fillShape, "Fill draws it at its own aspect too" );
+		Check( fillCovers, "and covers the cell" );
+		Check( stretchFills, "Stretch puts the artwork, not the padded layer, edge to edge in the cell" );
+		Check( trimShape, "Trim, which was always right, still is" );
+	}
+
+	printf( "scroll's wrap-around copies are finished cells\n" );
+	{
+		// A cell near the edge of a scrolling wall is drawn again one whole wall
+		// away, to fill the strip the scroll uncovers. Those copies were taken
+		// before the fit, the frame and the edge flag were set, so the mark
+		// entering at each edge was the whole layer stretched over the cell
+		// with no edge treatment, and snapped to its real shape once it had
+		// wrapped. A copy must be its cell in everything but where it is.
+		std::vector< Logo > logos;
+		for( float aspect : { 4.0f, 1.0f, 0.6f, 2.5f, 1.4f } )
+		{
+			Logo        l;
+			const float fx  = aspect >= 1.0f ? 1.0f : aspect;
+			const float fy  = aspect >= 1.0f ? 1.0f / aspect : 1.0f;
+			l.index         = static_cast< int >( logos.size() );
+			l.aspect        = aspect;
+			l.trimmedAspect = aspect;
+			l.imageX0 = l.trimX0 = ( 1.0f - fx ) * 0.5f;
+			l.imageX1 = l.trimX1 = l.imageX0 + fx;
+			l.imageY0 = l.trimY0 = ( 1.0f - fy ) * 0.5f;
+			l.imageY1 = l.trimY1 = l.imageY0 + fy;
+			if( aspect == 1.0f )
+				l.frameMs = { 100, 150, 250 };// and one of them animated
+			logos.push_back( l );
+		}
+		FillOptions    fo;
+		const Schedule sched = BuildSchedule( logos, 6, 4, fo );
+
+		LayoutOptions lo;
+		lo.outputAspect = 16.0f / 9.0f;
+		lo.scrollX      = 1.3f;
+		lo.scrollY      = -0.7f;
+		lo.edge         = Edge::Nib;
+		lo.edgeScope    = EdgeScope::EveryCell;
+
+		int  ghosts = 0, unmatched = 0;
+		bool same   = true;
+		for( Fit fit : { Fit::Fit, Fit::Fill, Fit::Trim, Fit::Stretch } )
+		{
+			lo.fit = fit;
+			for( float t : { 0.37f, 2.9f, 61.25f } )
+			{
+				const auto  r     = BuildLayout( sched, logos, 6, 4, t, lo );
+				const float wallW = lo.outputAspect;
+
+				for( const auto& g : r.cells )
+				{
+					// A cell's own centre is wrapped into the wall; a copy's is a
+					// whole wall outside it.
+					const Vec3 gp = Centre( g );
+					if( std::fabs( gp.x ) <= wallW * 0.5f + 1e-4f && std::fabs( gp.y ) <= 0.5f + 1e-4f )
+						continue;
+					++ghosts;
+
+					const CellTransform* source = nullptr;
+					for( const auto& c : r.cells )
+					{
+						const Vec3  cp = Centre( c );
+						const float kx = ( gp.x - cp.x ) / wallW, ky = gp.y - cp.y;
+						if( &c != &g && std::fabs( kx - std::round( kx ) ) < 1e-3f && std::fabs( ky - std::round( ky ) ) < 1e-3f &&
+							std::fabs( c.model.m[ 0 ][ 0 ] - g.model.m[ 0 ][ 0 ] ) < 1e-6f &&
+							std::fabs( c.model.m[ 1 ][ 1 ] - g.model.m[ 1 ][ 1 ] ) < 1e-6f &&
+							std::fabs( cp.x ) <= wallW * 0.5f + 1e-4f && std::fabs( cp.y ) <= 0.5f + 1e-4f )
+						{
+							source = &c;
+							break;
+						}
+					}
+					if( source == nullptr )
+					{
+						++unmatched;
+						continue;
+					}
+					if( g.logo != source->logo || g.frame != source->frame || g.edge != source->edge ||
+						g.uvScaleX != source->uvScaleX || g.uvScaleY != source->uvScaleY ||
+						g.uvOffsetX != source->uvOffsetX || g.uvOffsetY != source->uvOffsetY ||
+						g.brightness != source->brightness || g.opacity != source->opacity )
+						same = false;
+				}
+			}
+		}
+		Check( ghosts > 0, "a scrolling wall draws wrap-around copies" );
+		Check( unmatched == 0, "every copy is one whole wall from a cell of the wall" );
+		Check( same, "and carries that cell's fit, frame and edge treatment" );
+		printf( "    %d copies checked\n", ghosts );
+	}
+
+	printf( "an animated logo plays its own frames\n" );
+	{
+		// The atlas held frame 0 and nothing read the frame index, so an
+		// animated GIF sat still while the README said it played. The frame is
+		// now picked from the GIF's own delays, looped, from composition time.
+		Logo gif;
+		gif.frameMs = { 100, 200, 300 };
+		struct Case
+		{
+			float t;
+			int   frame;
+		};
+		const Case cases[] = { { 0.0f, 0 },   { 0.099f, 0 }, { 0.1f, 1 },  { 0.299f, 1 }, { 0.3f, 2 },
+							   { 0.599f, 2 }, { 0.6f, 0 },   { 0.75f, 1 }, { 600.25f, 1 } };
+		bool         right   = true;
+		for( const Case& c : cases )
+			if( FrameAt( gif, c.t ) != c.frame )
+			{
+				right = false;
+				printf( "    at %.3f s: frame %d, wanted %d\n", c.t, FrameAt( gif, c.t ), c.frame );
+			}
+		Check( right, "each frame shows for its own delay, and the animation loops" );
+
+		Logo still;
+		bool stillStill = true;
+		for( float t : { 0.0f, 0.15f, 1.0f, 33.3f, 600.0f } )
+			if( FrameAt( still, t ) != 0 )
+				stillStill = false;
+		Check( stillStill, "a still is always frame 0" );
+
+		// Through BuildLayout: on a 2x1 wall of one still and one GIF, only the
+		// GIF's cell changes frame.
+		std::vector< Logo > logos( 2 );
+		logos[ 1 ].index   = 1;
+		logos[ 1 ].frameMs = gif.frameMs;
+		FillOptions    fo;
+		const Schedule sched = BuildSchedule( logos, 2, 1, fo );
+		LayoutOptions  lo;
+		std::set< int > gifFrames, stillFrames;
+		for( float t : { 0.05f, 0.15f, 0.35f, 0.65f } )
+			for( const auto& c : BuildLayout( sched, logos, 2, 1, t, lo ).cells )
+				( c.logo == 1 ? gifFrames : stillFrames ).insert( c.frame );
+		Check( gifFrames.size() == 3, "the layout walks the GIF's cell through all three frames" );
+		Check( stillFrames.size() == 1 && *stillFrames.begin() == 0, "and leaves the still on frame 0" );
+	}
+
+	printf( "a wordmark on the cube turns with the slice of its first cell\n" );
+	{
+		// A wordmark across two cells has its centre exactly on the boundary
+		// between two slices, so which slice it turned with was decided by the
+		// last bit of a rounding, and the arm64 build (fused multiply-adds) and
+		// the x86_64 build rounded it to different sides. The slice is now
+		// chosen by the centre of its first cell, half a cell from any
+		// boundary.
+		//
+		// Checked against a reference cube where every wordmark is two single
+		// cells: the left half of each wordmark must go wherever the reference's
+		// left cell goes. Both boundaries of a 3-cube are covered -- even rows
+		// span columns 0-1, odd rows 1-2.
+		const int n = 3;
+		Schedule  wm, ref;
+		wm.steps.resize( 1 );
+		ref.steps.resize( 1 );
+		auto put = []( Step& s, int col, int r, int span, int logo ) {
+			Placement p;
+			p.col     = col;
+			p.row     = r;
+			p.colSpan = span;
+			p.logo    = logo;
+			s.cells.push_back( p );
+		};
+		for( int row = 0; row < 6 * n; ++row )
+		{
+			const bool lead = row % 2 == 0;// the wordmark leads the row
+			if( lead )
+			{
+				put( wm.steps[ 0 ], 0, row, 2, 0 );
+				put( wm.steps[ 0 ], 1, row, 0, 0 );
+				put( wm.steps[ 0 ], 2, row, 1, 1 );
+			}
+			else
+			{
+				put( wm.steps[ 0 ], 0, row, 1, 1 );
+				put( wm.steps[ 0 ], 1, row, 2, 0 );
+				put( wm.steps[ 0 ], 2, row, 0, 0 );
+			}
+			put( ref.steps[ 0 ], 0, row, 1, lead ? 0 : 1 );
+			put( ref.steps[ 0 ], 1, row, 1, 0 );
+			put( ref.steps[ 0 ], 2, row, 1, lead ? 1 : 0 );
+		}
+		std::vector< Logo > logos( 2 );
+		logos[ 0 ].aspect = logos[ 0 ].trimmedAspect = 4.0f;
+		logos[ 1 ].index                            = 1;
+
+		LayoutOptions lo;
+		lo.mode    = Mode::Rubik;
+		lo.cellPad = 0.0f;// so the wordmark's left half is exactly its left cell
+
+		bool  follows = true;
+		int   torn    = 0, samples = 0;
+		float worst   = 0.0f;
+		for( uint32_t seed = 1; seed <= 12; ++seed )
+		{
+			lo.seed = seed;
+			for( int k = 0; k < 4 * kMoveCount; ++k )
+			{
+				const float t = static_cast< float >( k ) * 0.5f;// on, a quarter and halfway through each move
+				const auto  a = BuildLayout( wm, logos, n, n, t, lo );
+				const auto  b = BuildLayout( ref, logos, n, n, t, lo );
+				if( a.cells.size() != static_cast< size_t >( 12 * n ) || b.cells.size() != static_cast< size_t >( 18 * n ) )
+				{
+					follows = false;
+					break;
+				}
+				for( int row = 0; row < 6 * n; ++row )
+				{
+					const bool lead = row % 2 == 0;
+					const auto& w   = a.cells[ static_cast< size_t >( row * 2 + ( lead ? 0 : 1 ) ) ];
+					const auto& l   = b.cells[ static_cast< size_t >( row * 3 + ( lead ? 0 : 1 ) ) ];
+					const auto& r   = b.cells[ static_cast< size_t >( row * 3 + ( lead ? 1 : 2 ) ) ];
+
+					const Vec3  half = TransformPoint( w.model, { -0.25f, 0.0f, 0.0f } );
+					const Vec3  left = Centre( l );
+					const float d    = std::sqrt( ( half.x - left.x ) * ( half.x - left.x ) + ( half.y - left.y ) * ( half.y - left.y ) +
+											  ( half.z - left.z ) * ( half.z - left.z ) );
+					worst = std::max( worst, d );
+					if( d > 1e-4f )
+						follows = false;
+
+					// Did this sample actually pull the two cells apart? If no
+					// move ever did, the check above proves nothing.
+					const Vec3  right = Centre( r );
+					const float apart = std::sqrt( ( right.x - left.x ) * ( right.x - left.x ) +
+												   ( right.y - left.y ) * ( right.y - left.y ) +
+												   ( right.z - left.z ) * ( right.z - left.z ) );
+					if( std::fabs( apart - 1.0f / static_cast< float >( n ) ) > 1e-3f )
+						++torn;
+					++samples;
+				}
+			}
+		}
+		Check( torn > 0, "the moves do pull a wordmark's two cells into different slices" );
+		Check( follows, "and every wordmark goes with its left-hand cell's slice, every time" );
+		printf( "    %d of %d samples had the two cells in different places; worst miss %.2g\n", torn, samples, worst );
+	}
+
 	printf( "twinkle: the point is that no two cells agree\n" );
 	{
 		FillOptions fo;

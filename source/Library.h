@@ -96,7 +96,7 @@ struct Image
 	std::vector< Frame > frames;
 
 	/// Bounding box of the pixels that are actually opaque, as fractions of the
-	/// image, from the first frame. `0,0,1,1` when the artwork reaches every
+	/// image, across every frame. `0,0,1,1` when the artwork reaches every
 	/// edge.
 	///
 	/// This exists because a sponsor pack never has consistent margins. One logo
@@ -153,6 +153,11 @@ Image Decode( const std::string& path, int rasterPx );
 /// Re-rasterise a vector image at a new size. No-op for raster images and for
 /// a size it is already at.
 void Rerasterise( Image& image, int rasterPx );
+
+/// Fill in an image's trim box and trimmed aspect from its frames -- all of
+/// them, so an animated logo's trim holds every frame. Decode does this; it is
+/// public for the harness.
+void ComputeTrim( Image& img );
 
 /// The whole folder, loaded off the render thread.
 ///

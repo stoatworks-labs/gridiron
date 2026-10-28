@@ -54,7 +54,7 @@ Accepted content:
 | kind | decoder | notes |
 |---|---|---|
 | png jpg jpeg bmp tga psd | stb_image | straight-alpha RGBA8 |
-| gif | stb_image | animated; frames become a per-cell playhead |
+| gif | stb_image | animated; a layer per frame, played at the file's own delays |
 | svg | nanosvg | **rasterised at cell size**, see below |
 
 **Vector logos rasterise at the size the cell actually is**, and re-rasterise when
@@ -84,10 +84,18 @@ halo of the neighbouring sponsor's logo, the single most visible possible artefa
 An array costs padding and gives clean edges and per-layer mips.
 
 Layers share dimensions, so each logo is padded into a common layer; fit / fill /
-crop / stretch is then a texture-coordinate transform *within* the layer. Guard
-`GL_MAX_TEXTURE_SIZE` conservatively at 8192 per side as flipbook does, because
-`glTexImage3D` failing gives you black, which looks identical to a folder that did
-not load.
+crop / stretch is then a texture-coordinate transform *within* the layer, on the
+rectangle the artwork occupies (`Logo::imageX0..imageY1`) and never the whole
+square -- mapping the whole square at the logo's aspect is what squashed every
+non-square logo up to v0.2.3. Guard `GL_MAX_TEXTURE_SIZE` conservatively at 8192
+per side as flipbook does, because `glTexImage3D` failing gives you black, which
+looks identical to a folder that did not load.
+
+An animated GIF takes one layer per frame, straight after its first, and the
+layout picks the frame from the file's own delays (`FrameAt`). Frames past the
+first share a 256 MB budget, because a layer is the size of the folder's largest
+logo; a GIF that does not fit is drawn as its first frame, with a note.
+`AtlasPlan.cpp` decides all of this before GL is touched.
 
 ### 3. Fill — "intelligently filled"
 
@@ -220,6 +228,23 @@ check that found it.
 - **The camera distance was one hard-coded constant for both projections**, which
   framed the cube at three percent of the frame: a correct render of an unreadable
   picture.
+
+Four more were found on 2026-10-28, after v0.2.3, by porting the layout to
+JavaScript for the browser demo and checking the port against the C++ number for
+number -- the harness had checked each part, and none of it checked what the
+parts meant together:
+
+- **Fit, Fill and Stretch squashed every non-square logo**, by the square layer's
+  padding: a 4:1 wordmark at 16:1. The fit test built a logo whose artwork filled
+  its layer, which no logo from the atlas ever does.
+- **Scroll's wrap-around copies were made before the fit**, so the mark entering
+  at each edge was drawn unfitted until it wrapped.
+- **Animated GIFs never animated.** The decoder kept every frame, the layout
+  computed a frame index, and the atlas uploaded frame 0 and nothing read it.
+- **A two-cell wordmark on the cube sat exactly on a slice boundary**, so which
+  slice it turned with was a rounding, and the arm64 build (fused multiply-adds)
+  rounded it the other way from x86_64. Slice membership is now tested at the
+  centre of its first cell, and the crosscheck holds the two builds together.
 
 `tools/verify.sh` is gridiron's own, and runs the release job's macOS checks
 locally. `.github/workflows/release.yml` arrived from flipbook expecting two

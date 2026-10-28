@@ -7,19 +7,29 @@
 #
 # 1. THE PORT (run by tools/verify.sh). printer.cpp drives the plugin's own
 #    Fill.cpp, Layout.cpp and Controls.h -- GL-free -- through scenario.mjs:
-#    seven folders of logos (the demo pack's shapes among them), every grid
-#    from 1x1 to 32x32, all five modes, every fit, walk, edge scope, hero and
-#    fill rule, at times out to a thousand seconds and outputs from portrait to
-#    wide. run.mjs puts demo/port.js through the same. Everything integer must
-#    be identical -- every schedule, every cell's logo, span, hero, edge and
-#    frame -- and every float within a millionth (relative, or absolute below
-#    1). The floats are not required to be identical because JavaScript's
-#    Math.sin, cos, tan and pow are V8's and the plugin's sinf, cosf, tanf and
-#    powf are Apple's libm, which differ in the last bit for some arguments.
+#    seven folders of logos (the demo pack's shapes among them, animated GIFs
+#    among them), every grid from 1x1 to 32x32, all five modes, every fit,
+#    walk, edge scope, hero and fill rule, at times out to a thousand seconds
+#    and outputs from portrait to wide; and AtlasPlan.cpp's layers and logo
+#    geometry for 25 folders against a range of GPU limits and the frame
+#    budget. run.mjs puts demo/port.js through the same. Everything integer
+#    must be identical -- every plan's layers and note, every schedule, every
+#    cell's logo, span, hero, edge and frame -- and every float within a
+#    millionth (relative, or absolute below 1). The floats are not required to
+#    be identical because JavaScript's Math.sin, cos, tan and pow are V8's and
+#    the plugin's sinf, cosf, tanf and powf are Apple's libm, which differ in
+#    the last bit for some arguments.
+#
 #    The C++ is built -ffp-contract=off, the x86_64 slice's arithmetic: Apple
 #    clang fuses a*b+c on arm64, which JavaScript cannot, so the plugin's two
-#    slices round differently from each other. That build is compared too, and
-#    reported, not required.
+#    slices round differently from each other. That build is compared too,
+#    within a hundredth. Up to v0.2.3 the two slices disagreed by a whole unit
+#    on the cube -- a wordmark across two cells had its centre exactly on a
+#    slice boundary and each build rounded it to a different slice -- and a
+#    hundredth is what holds that fixed: a cell on the wrong slice is off by at
+#    least a cell. What still differs is Twinkle's brightness and Fade's
+#    opacity, sines of arguments in the thousands by a thousand seconds, by up
+#    to 0.004.
 #
 # 2. THE FRAMES (--frames; needs Google Chrome). frames.mm drives the REAL
 #    plugin class -- stb_image, nanosvg, the atlas, the shaders -- in a headless
@@ -52,9 +62,13 @@ trap cleanup EXIT
 #---------------------------------------------------------------------------
 # 1. The port.
 #---------------------------------------------------------------------------
-port_sources=( "$REPO/source/Fill.cpp" "$REPO/source/Layout.cpp" )
-"$CXX" -std=c++17 -O2 -ffp-contract=off -I "$REPO/source" "$HERE/printer.cpp" "${port_sources[@]}" -o "$tmp/printer-strict"
-"$CXX" -std=c++17 -O2 -I "$REPO/source" "$HERE/printer.cpp" "${port_sources[@]}" -o "$tmp/printer-native"
+# AtlasPlan needs Library's Image, and Image needs Library.cpp and SvgLib.cpp
+# (stb_image and nanosvg) to link, though planning decodes nothing.
+port_sources=( "$REPO/source/Fill.cpp" "$REPO/source/Layout.cpp" "$REPO/source/AtlasPlan.cpp"
+               "$REPO/source/Library.cpp" "$REPO/source/SvgLib.cpp" )
+port_includes=( -I "$REPO/source" -I "$REPO/external/stb" -I "$REPO/external/nanosvg" )
+"$CXX" -std=c++17 -O2 -ffp-contract=off -w "${port_includes[@]}" "$HERE/printer.cpp" "${port_sources[@]}" -o "$tmp/printer-strict"
+"$CXX" -std=c++17 -O2 -w "${port_includes[@]}" "$HERE/printer.cpp" "${port_sources[@]}" -o "$tmp/printer-native"
 
 node "$HERE/scenario.mjs" > "$tmp/scenario.txt"
 "$tmp/printer-strict" < "$tmp/scenario.txt" > "$tmp/cpp.txt"
@@ -67,10 +81,14 @@ if ! out=$( python3 "$HERE/compare.py" "$tmp/cpp.txt" "$tmp/js.txt" --tolerance 
 	exit 1
 fi
 echo "ok   the port against the plugin's C++ (contraction off, the x86_64 slice's arithmetic): $out"
-echo "     against the plugin as built for arm64 (fused multiply-adds), reported, not required:"
-python3 "$HERE/compare.py" "$tmp/cpp-native.txt" "$tmp/js.txt" --tolerance 1e-3 --report | sed 's/^/       /'
-echo "     (a float off by a whole unit there is a cube cell turning with the other slice: a wordmark spanning"
-echo "     two cells has its centre exactly on a slice boundary, and the two builds round it to different sides)"
+
+if ! out=$( python3 "$HERE/compare.py" "$tmp/cpp-native.txt" "$tmp/js.txt" --tolerance 1e-2 ); then
+	echo "FAIL the plugin as built for arm64 differs from the x86_64 arithmetic by more than a hundredth"
+	echo "     (a cube cell turning with a different slice on one build than on the other?):"
+	printf '%s\n' "$out" | sed 's/^/      /'
+	exit 1
+fi
+echo "ok   the port against the plugin as built for arm64 (fused multiply-adds), within a hundredth: $out"
 
 [[ "${1:-}" == "--frames" ]] || exit 0
 
@@ -83,7 +101,7 @@ mkdir -p "$out_dir"
 
 version="$( sed -n 's/^[[:space:]]*VERSION \([0-9.]*\)$/\1/p' "$REPO/CMakeLists.txt" | head -1 )"
 plugin_sources=()
-for s in Clock SvgLib Diag Library Fill Layout Atlas Shaders Render Gridiron; do plugin_sources+=( "$REPO/source/$s.cpp" ); done
+for s in Clock SvgLib Diag Library Fill Layout AtlasPlan Atlas Shaders Render Gridiron; do plugin_sources+=( "$REPO/source/$s.cpp" ); done
 "$CXX" -std=c++17 -O2 -DGL_SILENCE_DEPRECATION -DGRIDIRON_VERSION="\"$version\"" \
 	-I "$REPO/source" -I "$REPO/external/stb" -I "$REPO/external/nanosvg" -I "$REPO/external/ffgl/source/lib" \
 	-x objective-c++ "$HERE/frames.mm" -x c++ "${plugin_sources[@]}" "$REPO/external/ffgl/source/lib/FFGLSDK.cpp" \

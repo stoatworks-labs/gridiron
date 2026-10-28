@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "AtlasPlan.h"
 #include "Fill.h"
 #include "Library.h"
 
@@ -35,9 +36,14 @@
 
     Each logo is drawn into its layer **preserving its aspect**, centred, with
     transparent padding, and the fraction of the layer it occupies goes to the
-    shader as part of the UV transform. Stretching the artwork to fill a square
-    layer and unstretching in the shader would be smaller and simpler and would
-    quietly halve the horizontal resolution of every wordmark.
+    shader as part of the UV transform (`Logo::imageX0` .. `imageY1`). Stretching
+    the artwork to fill a square layer and unstretching in the shader would be
+    smaller and simpler and would quietly halve the horizontal resolution of
+    every wordmark.
+
+    An animated GIF takes one layer per frame, straight after its first, inside
+    a budget -- see AtlasPlan.h. `LayerCount()` counts layers, so it is the logo
+    count only for a folder of stills; `Logos().size()` is always the logo count.
 
     ## The size guard
 
@@ -110,13 +116,9 @@ private:
 	/// frame -- at 2048px that is a 16 MB allocation and this runs every frame.
 	std::vector< uint8_t > mScratch;
 	std::vector< Logo > mLogos;
+	/// Which image and frame each layer is filled from: PlanAtlas's answer.
+	std::vector< AtlasPlan::Layer > mSources;
 	std::string         mNote;
 };
-
-/// The layer edge to upload at, given how big a cell will actually be on screen.
-/// Rounded up to a power of two and clamped to what the driver allows, because a
-/// texture array that changes size every time the composition is resized would
-/// re-upload the whole folder on every drag of the window.
-int ChooseLayerSize( int cellPixels );
 
 } // namespace gridiron

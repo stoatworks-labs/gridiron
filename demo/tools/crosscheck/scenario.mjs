@@ -22,8 +22,11 @@ function rand() {
 }
 const pick = (list) => list[Math.floor(rand() * list.length)];
 
-/** A logo as the atlas would describe it: an aspect, a trim box in layer space. */
-function logo(aspect, margin = 0) {
+/**
+ * A logo as the atlas would describe it: an aspect, a trim box and the
+ * artwork's box in layer space, and its frame delays (none for a still).
+ */
+function logo(aspect, margin = 0, frameMs = []) {
   aspect = f(aspect);
   // Where the artwork sits in a square layer, as PlaceIn puts it.
   const fx = aspect >= 1 ? 1 : aspect;
@@ -35,13 +38,16 @@ function logo(aspect, margin = 0) {
   const y0 = f(oy + margin * 0.5 * fy);
   const y1 = f(oy + (1 - margin * 0.5) * fy);
   const trimmed = f((aspect * (1 - 2 * margin)) / (1 - margin));
-  return [aspect, x0, y0, x1, y1, trimmed];
+  return { floats: [aspect, x0, y0, x1, y1, trimmed, f(ox), f(oy), f(ox + fx), f(oy + fy)], frameMs };
 }
+
+const GIF_DELAYS = [11, 20, 40, 70, 100, 120, 500];
+const animated = (n) => Array.from({ length: n }, () => pick(GIF_DELAYS));
 
 const SETS = [
   [logo(1)],
-  [logo(1), logo(1.3)],
-  [logo(4), logo(1), logo(0.7)],
+  [logo(1), logo(1.3, 0, [120, 120, 120, 120])],
+  [logo(4), logo(1), logo(0.7, 0.1, [100, 200, 300])],
   // the shape of the demo pack: panels, wordmarks, roundels, padded squares
   [logo(16 / 9), logo(16 / 9), logo(16 / 9), logo(16 / 9), logo(1.1348), logo(1, 0.06), logo(1, 0.05),
     logo(4.1538, 0.25), logo(1, 0.1), logo(4.6154, 0.26), logo(3.8462, 0.24), logo(1), logo(4.0385, 0.25),
@@ -49,7 +55,10 @@ const SETS = [
 ];
 for (const n of [5, 9, 40]) {
   const set = [];
-  for (let i = 0; i < n; i += 1) set.push(logo(pick([0.5, 0.8, 1, 1, 1.5, 2.2, 2.5, 4, 6]), pick([0, 0, 0.1, 0.3])));
+  for (let i = 0; i < n; i += 1) {
+    const frames = rand() < 0.15 ? animated(2 + Math.floor(rand() * 8)) : [];
+    set.push(logo(pick([0.5, 0.8, 1, 1, 1.5, 2.2, 2.5, 4, 6]), pick([0, 0, 0.1, 0.3]), frames));
+  }
   SETS.push(set);
 }
 
@@ -62,7 +71,24 @@ const GRIDS = [[1, 1], [2, 2], [6, 4], [7, 5], [12, 8], [3, 9]];
 const out = [];
 
 function L(set) {
-  out.push(`L ${set.length} ${set.map((l) => l.map(bits).join(' ')).join(' ')}`);
+  const each = set.map((l) => [...l.floats.map(bits), l.frameMs.length, ...l.frameMs].join(' '));
+  out.push(`L ${set.length} ${each.join(' ')}`);
+}
+
+/**
+ * AtlasPlan: images as the decoder hands them over -- a pixel size, an aspect,
+ * a trim box in image space and frame delays -- and a GPU's two limits.
+ */
+function A(images, maxSize, maxLayers) {
+  const each = images.map((i) => [i.width, i.height, ...[i.aspect, ...i.trim, i.trimmed].map(bits), i.frameMs.length, ...i.frameMs].join(' '));
+  out.push(`A ${images.length} ${maxSize} ${maxLayers} ${each.join(' ')}`);
+}
+
+function image(width, height, frameMs = [], margin = 0) {
+  const aspect = f(width / height);
+  const trim = [f(margin), f(margin * 0.5), f(1 - margin), f(1 - margin * 0.5)];
+  const trimmed = f(f(f(trim[2] - trim[0]) * width) / f(f(trim[3] - trim[1]) * height));
+  return { width, height, aspect, trim, trimmed, frameMs };
 }
 
 function S(cols, rows, mode, seed, noAdj, aspect, equal, hero, hc, hr, hl) {
@@ -124,5 +150,23 @@ SETS.forEach((set, index) => {
     }
   }
 });
+
+// The atlas plan: frames as layers, the GPU's layer limit and the frame budget.
+for (let k = 0; k < 24; k += 1) {
+  const images = [];
+  const count = 1 + Math.floor(rand() * 12);
+  for (let i = 0; i < count; i += 1) {
+    const longest = pick([64, 120, 200, 512, 800, 1500, 2000]);
+    const aspect = pick([0.25, 0.5, 0.8, 1, 1, 1.5, 2.2, 4, 8]);
+    const width = aspect >= 1 ? longest : Math.max(1, Math.round(longest * aspect));
+    const height = aspect >= 1 ? Math.max(1, Math.round(longest / aspect)) : longest;
+    const frames = rand() < 0.3 ? animated(2 + Math.floor(rand() * 30)) : [];
+    images.push(image(width, height, frames, pick([0, 0, 0.1, 0.3])));
+  }
+  const total = images.reduce((n, i) => n + Math.max(i.frameMs.length, 1), 0);
+  A(images, pick([0, 1024, 2048, 8192]), pick([0, 2048, count, count + 3, total, total - 1, Math.max(1, count - 2)]));
+}
+// Two GIFs at 2048px: the first fits the 256 MB of frames, the second does not.
+A([image(2000, 500), image(300, 300, animated(10)), image(300, 300, animated(10))], 8192, 2048);
 
 process.stdout.write(`${out.join('\n')}\n`);

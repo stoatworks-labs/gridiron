@@ -1,16 +1,21 @@
 // The plugin's own arrangement and layout, printed, for the demo's crosscheck.
 //
 // Reads scenario.mjs's lines on stdin and answers each with what the plugin's
-// C++ makes of it: Fill.cpp's schedule, Layout.cpp's every cell, and
-// Controls.h's mappings on the way in, wired the way GridironPlugin wires them
+// C++ makes of it: AtlasPlan.cpp's layers and logo geometry, Fill.cpp's
+// schedule, Layout.cpp's every cell, and Controls.h's mappings on the way in,
+// wired the way GridironPlugin wires them
 // (FillGrid before the schedule, the hero off on a cube, Twinkle and Fade
 // forced on by their modes, the camera pitch halved). run.mjs does the same
 // with demo/port.js and prints the same lines. Floats print as their bits.
 //
-//   L n  aspect trimX0 trimY0 trimX1 trimY1 trimmedAspect  (x n, as bits)
+//   L n  aspect trimX0 trimY0 trimX1 trimY1 trimmedAspect imageX0 imageY0 imageX1 imageY1
+//        (as bits) frames ms..  (x n)
+//   A n maxSize maxLayers  width height aspect trimX0 trimY0 trimX1 trimY1 trimmedAspect
+//        (as bits) frames ms..  (x n)
 //   S columns rows mode seed noAdjacent aspectAware equalAirtime hero heroCols heroRows heroLogo
 //   Y mode projection fit walk edge edgeScope  cellPad speed scrollX scrollY gridRot walkRate
 //     twinkle fade fov camYaw camPitch (host 0..1, as bits)  seed width height time(bits)
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "AtlasPlan.h"
 #include "Controls.h"
 #include "Fill.h"
 #include "Layout.h"
@@ -71,8 +77,9 @@ int main()
 			logos.clear();
 			for( int i = 0; i < n; ++i )
 			{
-				std::string a, x0, y0, x1, y1, t;
-				in >> a >> x0 >> y0 >> x1 >> y1 >> t;
+				std::string a, x0, y0, x1, y1, t, ix0, iy0, ix1, iy1;
+				int         frames = 0;
+				in >> a >> x0 >> y0 >> x1 >> y1 >> t >> ix0 >> iy0 >> ix1 >> iy1 >> frames;
 				Logo l;
 				l.index         = i;
 				l.aspect        = Bits( a );
@@ -81,9 +88,60 @@ int main()
 				l.trimX1        = Bits( x1 );
 				l.trimY1        = Bits( y1 );
 				l.trimmedAspect = Bits( t );
+				l.imageX0       = Bits( ix0 );
+				l.imageY0       = Bits( iy0 );
+				l.imageX1       = Bits( ix1 );
+				l.imageY1       = Bits( iy1 );
+				for( int k = 0; k < frames; ++k )
+				{
+					int ms = 0;
+					in >> ms;
+					l.frameMs.push_back( ms );
+				}
 				logos.push_back( l );
 			}
 			std::printf( "L %d\n", n );
+		}
+		else if( tag == "A" )
+		{
+			int n = 0, maxSize = 0, maxLayers = 0;
+			in >> n >> maxSize >> maxLayers;
+			std::vector< Image > images( static_cast< size_t >( n ) );
+			for( Image& img : images )
+			{
+				std::string a, x0, y0, x1, y1, t;
+				int         frames = 0;
+				in >> img.width >> img.height >> a >> x0 >> y0 >> x1 >> y1 >> t >> frames;
+				img.aspect        = Bits( a );
+				img.trimX0        = Bits( x0 );
+				img.trimY0        = Bits( y0 );
+				img.trimX1        = Bits( x1 );
+				img.trimY1        = Bits( y1 );
+				img.trimmedAspect = Bits( t );
+				img.name          = "logo";
+				// Planning reads sizes and delays, never pixels.
+				img.frames.resize( static_cast< size_t >( std::max( frames, 1 ) ) );
+				for( int k = 0; k < frames; ++k )
+					in >> img.frames[ static_cast< size_t >( k ) ].delayMs;
+			}
+
+			const AtlasPlan plan = PlanAtlas( images, maxSize, maxLayers );
+			std::printf( "A %d %zu %d %d %s\n", plan.layerSize, plan.layers.size(), plan.animated, plan.stilled, plan.note.c_str() );
+			for( const Logo& l : plan.logos )
+			{
+				std::printf( "P %d %d", l.index, l.layer );
+				for( float v : { l.aspect, l.imageX0, l.imageY0, l.imageX1, l.imageY1, l.trimX0, l.trimY0, l.trimX1, l.trimY1,
+								 l.trimmedAspect } )
+					Put( v );
+				std::printf( " %zu", l.frameMs.size() );
+				for( int ms : l.frameMs )
+					std::printf( " %d", ms );
+				std::printf( "\n" );
+			}
+			std::printf( "Q" );
+			for( const AtlasPlan::Layer& layer : plan.layers )
+				std::printf( " %d,%d", layer.image, layer.frame );
+			std::printf( "\n" );
 		}
 		else if( tag == "S" )
 		{

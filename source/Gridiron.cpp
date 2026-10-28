@@ -419,7 +419,8 @@ void GridironPlugin::RebuildScheduleIfNeeded()
 	key.columns      = columns;
 	key.rows         = rows;
 	key.seed         = static_cast< uint32_t >( std::max( 0.0f, mParams[ PT_SEED ] ) );
-	key.logoCount    = mAtlas.LayerCount();
+	// Logos, not layers: an animated GIF is several layers and one logo.
+	key.logoCount    = static_cast< int >( mAtlas.Logos().size() );
 	key.hero         = OptionIndex( PT_HERO, 4 );
 	key.heroCols     = static_cast< int >( mParams[ PT_HERO_COLS ] + 0.5f );
 	key.heroRows     = static_cast< int >( mParams[ PT_HERO_ROWS ] + 0.5f );
@@ -475,7 +476,7 @@ FFResult GridironPlugin::ProcessOpenGL( ProcessOpenGLStruct* pGL )
 		return FF_SUCCESS;// nothing to draw is not a failure
 	}
 
-	diag::stateChanged( mTag + "draw", mTag + "drawing " + std::to_string( mAtlas.LayerCount() ) + " logos on a " +
+	diag::stateChanged( mTag + "draw", mTag + "drawing " + std::to_string( mAtlas.Logos().size() ) + " logos on a " +
 									std::to_string( static_cast< int >( mParams[ PT_COLUMNS ] + 0.5f ) ) + "x" +
 									std::to_string( static_cast< int >( mParams[ PT_ROWS ] + 0.5f ) ) + " grid" );
 

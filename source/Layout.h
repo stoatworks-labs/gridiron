@@ -54,7 +54,7 @@ struct CellTransform
 {
 	Mat4 model;
 
-	int logo = -1;///< atlas layer; -1 draws nothing
+	int logo = -1;///< index into the logos; -1 draws nothing
 
 	/// Maps cell-local 0..1 UV onto the logo's layer, implementing fit / fill /
 	/// crop / stretch. Applied as `uv * scale + offset`.
@@ -64,7 +64,9 @@ struct CellTransform
 	float brightness = 1.0f;///< twinkle
 	float opacity    = 1.0f;///< fade
 
-	int frame = 0;///< which frame of an animated logo
+	/// Which frame of an animated logo, from `FrameAt`. The renderer draws layer
+	/// `logo.layer + frame`.
+	int frame = 0;
 
 	bool hero = false;
 	bool edge = false;///< does the edge treatment apply to this cell
@@ -118,6 +120,13 @@ void FillGrid( Mode mode, int columns, int rows, int& outColumns, int& outRows )
 /// How many moves are in one scramble-and-solve cycle. Even, because the second
 /// half undoes the first.
 constexpr int kMoveCount = 16;
+
+/// Which frame of an animated logo is showing at `timeSeconds`: the logo's own
+/// frame delays, looped, from composition time. Not scaled by Speed -- an
+/// animated GIF is content, and plays at the rate it was made to play at. Every
+/// copy of it on the wall is on the same frame, as a browser shows every copy of
+/// one GIF on a page. 0 for a still.
+int FrameAt( const Logo& logo, float timeSeconds );
 
 /// One slice rotation.
 struct CubeMove

@@ -43,7 +43,7 @@ import {
   CellPad, GridWidth, Speed, Scroll, GridRot, WalkRate, Fov, CamAngle, EdgeThreshold,
   buildSchedule, buildLayout, fillGrid, mul,
   lowerExtension, scanFolder, scanUnsupported, computeTrim, svgRasterSize, svgNote, loaderNote,
-  atlasGeometry, placeIn, blit,
+  planAtlas, placeIn, blit,
 } from './port.js';
 
 const query = new URLSearchParams(window.location.search);
@@ -126,7 +126,7 @@ function svgLength(value) {
 }
 
 async function decodeSvg(gl, entry, rasterPx) {
-  const img = { name: entry.name, width: 0, height: 0, aspect: 1, rgba: null, note: '', vector: true };
+  const img = { name: entry.name, width: 0, height: 0, aspect: 1, frames: [], note: '', vector: true };
   let text;
   try {
     text = await entry.blob.text();
@@ -172,7 +172,7 @@ async function decodeSvg(gl, entry, rasterPx) {
     const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext('2d');
     ctx.drawImage(el, 0, 0, width, height);
-    img.rgba = new Uint8Array(ctx.getImageData(0, 0, width, height).data.buffer);
+    img.frames = [{ rgba: new Uint8Array(ctx.getImageData(0, 0, width, height).data.buffer), delayMs: 100 }];
   } catch {
     img.note = `${img.name}: rasteriser failed`;
     return img;
@@ -188,12 +188,60 @@ async function decodeSvg(gl, entry, rasterPx) {
   return img;
 }
 
+/**
+ * Every frame of an animated GIF, through WebCodecs' ImageDecoder, which hands
+ * back each frame composited onto the ones before it, as stb_image does. The
+ * delays follow Library.cpp's rule: none, or 10 ms or less, is 100 ms. null when
+ * this browser has no ImageDecoder or it fails, and the caller falls back to
+ * the first frame.
+ */
+async function gifFrames(gl, entry) {
+  if (typeof ImageDecoder === 'undefined') return null;
+  let decoder = null;
+  try {
+    decoder = new ImageDecoder({
+      data: await entry.blob.arrayBuffer(),
+      type: 'image/gif',
+      colorSpaceConversion: 'none',
+      premultiplyAlpha: 'none',
+    });
+    await decoder.tracks.ready;
+    await decoder.completed;
+    const count = decoder.tracks.selectedTrack?.frameCount ?? 0;
+    const out = { width: 0, height: 0, frames: [] };
+    for (let i = 0; i < count; i += 1) {
+      const { image } = await decoder.decode({ frameIndex: i });
+      out.width = image.displayWidth;
+      out.height = image.displayHeight;
+      const ms = image.duration == null ? 0 : Math.round(image.duration / 1000);
+      out.frames.push({ rgba: pixelsOf(gl, image, out.width, out.height), delayMs: ms > 10 ? ms : 100 });
+      image.close();
+    }
+    return out.frames.length > 0 ? out : null;
+  } catch {
+    return null;
+  } finally {
+    decoder?.close();
+  }
+}
+
 async function decodeRaster(gl, entry) {
-  const img = { name: entry.name, width: 0, height: 0, aspect: 1, rgba: null, note: '', vector: false };
+  const img = { name: entry.name, width: 0, height: 0, aspect: 1, frames: [], note: '', vector: false };
   const ext = lowerExtension(entry.name);
   if (ext === 'tga' || ext === 'psd') {
     img.note = `${img.name}: no .${ext} decoder in this browser (the plugin's stb_image has one)`;
     return img;
+  }
+  if (ext === 'gif') {
+    const gif = await gifFrames(gl, entry);
+    if (gif) {
+      img.width = gif.width;
+      img.height = gif.height;
+      img.frames = gif.frames;
+      img.aspect = f(img.width / img.height);
+      computeTrim(img);
+      return img;
+    }
   }
   let bitmap;
   try {
@@ -208,8 +256,13 @@ async function decodeRaster(gl, entry) {
   }
   img.width = bitmap.width;
   img.height = bitmap.height;
-  img.rgba = pixelsOf(gl, bitmap, bitmap.width, bitmap.height);
+  img.frames = [{ rgba: pixelsOf(gl, bitmap, bitmap.width, bitmap.height), delayMs: 100 }];
   bitmap.close();
+  // A GIF reaching here is drawn as its first frame: the plugin plays it, and
+  // so does this page wherever the browser has WebCodecs' ImageDecoder.
+  if (ext === 'gif' && typeof ImageDecoder === 'undefined') {
+    img.note = `${img.name}: this browser has no ImageDecoder, so it shows the GIF's first frame (the plugin plays it)`;
+  }
   img.aspect = f(img.width / img.height);
   computeTrim(img);
   return img;
@@ -219,7 +272,7 @@ function decode(gl, entry, rasterPx) {
   return lowerExtension(entry.name) === 'svg' ? decodeSvg(gl, entry, rasterPx) : decodeRaster(gl, entry);
 }
 
-const usable = (img) => img.width > 0 && img.height > 0 && img.rgba;
+const usable = (img) => img.width > 0 && img.height > 0 && img.frames.length > 0;
 
 /**
  * Library.cpp's Loader, off the frame: Start() cancels and replaces, Ready()
@@ -266,7 +319,7 @@ class Loader {
 }
 
 //===========================================================================
-// Atlas.cpp on WebGL2 — one GL_TEXTURE_2D_ARRAY layer per logo
+// Atlas.cpp on WebGL2 — one GL_TEXTURE_2D_ARRAY layer per logo frame
 //===========================================================================
 
 class Atlas {
@@ -277,6 +330,7 @@ class Atlas {
     this.layerSize = 0;
     this.uploaded = 0;
     this.logos = [];
+    this.sources = [];
     this.scratch = null;
     this.note = '';
   }
@@ -288,6 +342,7 @@ class Atlas {
     this.layerSize = 0;
     this.uploaded = 0;
     this.logos = [];
+    this.sources = [];
     this.scratch = null;
   }
 
@@ -304,37 +359,39 @@ class Atlas {
       return false;
     }
 
-    const geo = atlasGeometry(images, gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS));
+    const plan = planAtlas(images, gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS));
+    const layers = plan.layers.length;
 
     while (gl.getError() !== gl.NO_ERROR) { /* drained, as Atlas::Begin does */ }
 
     this.texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texture);
-    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, geo.layerSize, geo.layerSize, geo.layers, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, plan.layerSize, plan.layerSize, layers, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     const error = gl.getError();
     if (error !== gl.NO_ERROR) {
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
       this.release();
-      const mb = Math.floor((geo.layerSize * geo.layerSize * 4 * geo.layers) / (1 << 20));
+      const mb = Math.floor((plan.layerSize * plan.layerSize * 4 * layers) / (1 << 20));
       // "0x" then the code in decimal: Atlas.cpp's std::to_string, ported as it is.
-      this.note = `the GPU refused a ${geo.layerSize}px array of ${geo.layers} layers (${mb} MB, GL error 0x${error})`;
+      this.note = `the GPU refused a ${plan.layerSize}px array of ${layers} layers (${mb} MB, GL error 0x${error})`;
       return false;
     }
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
 
-    this.logos = geo.logos;
-    this.layers = geo.layers;
-    this.layerSize = geo.layerSize;
+    this.logos = plan.logos;
+    this.sources = plan.layers;
+    this.layers = layers;
+    this.layerSize = plan.layerSize;
     this.uploaded = 0;
-    this.scratch = new Uint8Array(geo.layerSize * geo.layerSize * 4);
-    this.note = geo.note;
+    this.scratch = new Uint8Array(plan.layerSize * plan.layerSize * 4);
+    this.note = plan.note;
     return true;
   }
 
   step(images, pixelBudget) {
     const gl = this.gl;
     if (!this.texture || this.uploaded >= this.layers) return true;
-    if (images.length < this.layers) {
+    if (images.length < this.logos.length) {
       this.note = 'the image list changed under the upload';
       this.release();
       return true;
@@ -349,10 +406,13 @@ class Atlas {
     let spent = 0;
     while (this.uploaded < this.layers && (spent === 0 || spent + perLayer <= pixelBudget)) {
       const i = this.uploaded;
-      const img = images[i];
+      const source = this.sources[i];
+      const img = images[source.image];
       this.scratch.fill(0);
+      // Every frame where its first is: one placeIn, so the frames register.
       const p = placeIn(img, this.layerSize);
-      blit(img.rgba, img.width, img.height, this.scratch, this.layerSize, p.dx, p.dy, p.dw, p.dh);
+      const frame = img.frames[source.frame];
+      if (frame) blit(frame.rgba, img.width, img.height, this.scratch, this.layerSize, p.dx, p.dy, p.dw, p.dh);
       gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, this.layerSize, this.layerSize, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.scratch);
       this.uploaded += 1;
       spent += perLayer;
@@ -555,7 +615,7 @@ function createRenderer(gl) {
       heroRows: intOf(params, 'heroRows'),
       heroLogo: intOf(params, 'heroLogo'),
     };
-    const key = JSON.stringify([columns, rows, atlas.layers, mode, o]);
+    const key = JSON.stringify([columns, rows, atlas.logos.length, mode, o]);
     if (key === st.scheduleKey) return;
     st.scheduleKey = key;
     // The hero block is meaningless on a cube: there is no top of the wall.
@@ -566,10 +626,16 @@ function createRenderer(gl) {
   function draw(layout, width, height, d) {
     const data = [];
     for (const c of layout.cells) {
-      if (c.logo < 0 || c.logo >= atlas.layers) continue;
+      if (c.logo < 0 || c.logo >= atlas.logos.length) continue;
+      // Render.cpp: a logo is a run of layers, one per frame; the layout says
+      // which frame.
+      const logo = atlas.logos[c.logo];
+      const frames = Math.max(logo.frameMs.length, 1);
+      const layer = logo.layer + Math.min(Math.max(c.frame, 0), frames - 1);
+      if (layer >= atlas.layers) continue;
       for (let i = 0; i < 16; i += 1) data.push(c.model[i]);
       data.push(c.uvScaleX, c.uvScaleY, c.uvOffsetX, c.uvOffsetY);
-      data.push(c.logo, c.brightness, c.opacity, c.edge ? 1 : 0);
+      data.push(layer, c.brightness, c.opacity, c.edge ? 1 : 0);
     }
     const count = data.length / kFloatsPerInstance;
     if (count === 0) return;
@@ -748,7 +814,7 @@ const mounted = mountDemo({
     'The arrangement and the layout are a JavaScript port of the plugin’s C++ — the folder rules, the trim, the atlas geometry, Fill.cpp, Layout.cpp, Mat4.h, Hash.h and Controls.h — in float arithmetic, as the plugin does it. demo/tools/crosscheck in the repository runs the port and the plugin’s own Fill.cpp and Layout.cpp through the same two hundred walls and fails unless every schedule and every cell’s logo come out identical and every position within a millionth; that, and not this page, is the reason to believe the port.',
     'The decoding is the browser’s, not the plugin’s. PNG, JPEG, GIF and BMP are decoded by the browser with colour management and EXIF rotation off, as stb_image decodes them. TGA and PSD have no browser decoder, so here they are listed in the About line as not loaded; the plugin loads them.',
     'An SVG is drawn by the browser at the plugin’s 512 px, not by nanosvg. The browser honours clip paths, masks, filters, patterns, <use> and embedded images, all of which nanosvg drops, so an SVG can look better here than in the plugin. Live <text> is the exception: nanosvg draws none, so this page takes it out before drawing and the About line warns, as the plugin’s does. Trust the About line over the picture.',
-    'An animated GIF shows its first frame. So does the plugin as built: its atlas holds one layer per logo, filled from frame 0, and nothing reads the frame index the layout computes.',
+    'An animated GIF plays, a layer per frame, at its own frame delays, as in the plugin. The frames are decoded by the browser’s ImageDecoder (WebCodecs); a browser without one shows the first frame and says so in the About line.',
     'Logos in the plugin is a file picker that reads the folder around the file you pick. A browser cannot see a picked file’s neighbours, so this page asks for the folder itself, or several files, or a drop, and applies the plugin’s rules to what it gets: the top level only, the eight extensions, no dotfiles, sorted by name. Folder Override takes a path on disk, which a page cannot read, so it does nothing here. Reload reads your files again.',
     'The plugin starts with no folder and draws nothing; this page starts as if you had pointed it at the demo pack in the download. The Resolume marks in that pack are Resolume’s trademarks, included as sample content only; gridiron is independent of Resolume and implies no affiliation or endorsement.',
     'The clock is the page’s: seconds from frame deltas, handed straight to the layout. The plugin measures whether its host sends seconds or milliseconds (Resolume sends milliseconds) and that vote is not ported. Pause stops the wall; Step is 1/60 s.',

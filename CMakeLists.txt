@@ -84,6 +84,8 @@ add_library(gridiron_core OBJECT
     source/Fill.cpp
     source/Layout.h
     source/Layout.cpp
+    source/AtlasPlan.h
+    source/AtlasPlan.cpp
     source/Atlas.h
     source/Atlas.cpp
     source/Shaders.h
@@ -156,7 +158,7 @@ gridiron_add_plugin(GridironSource source/SourcePlugin.cpp
 if(GRIDIRON_BUILD_TOOLS)
     add_executable(gdtest_fill    tools/gdtest/Fill_test.cpp    source/Fill.cpp)
     add_executable(gdtest_layout  tools/gdtest/Layout_test.cpp  source/Layout.cpp source/Fill.cpp)
-    add_executable(gdtest_library tools/gdtest/Library_test.cpp source/Library.cpp source/SvgLib.cpp)
+    add_executable(gdtest_library tools/gdtest/Library_test.cpp source/Library.cpp source/SvgLib.cpp source/AtlasPlan.cpp)
 
     foreach(t gdtest_fill gdtest_layout gdtest_library)
         target_include_directories(${t} PRIVATE source external/stb external/nanosvg)

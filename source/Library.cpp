@@ -86,10 +86,15 @@ int CountElement( const std::string& text, const char* name )
 	return count;
 }
 
-/// Bounding box of pixels with meaningful alpha. Returns false when the image is
-/// entirely transparent, in which case the caller keeps the full rect -- a wall
-/// cell showing nothing is better than one showing a division by zero.
-bool TrimBounds( const Frame& f, int w, int h, float& x0, float& y0, float& x1, float& y1 )
+/// Bounding box of pixels with meaningful alpha, across every frame. Returns
+/// false when the image is entirely transparent, in which case the caller keeps
+/// the full rect -- a wall cell showing nothing is better than one showing a
+/// division by zero.
+///
+/// Every frame, not the first: an animated GIF plays, and a trim measured on
+/// frame 0 crops whatever its later frames draw outside it -- and a GIF that
+/// fades in from an empty first frame would measure nothing at all.
+bool TrimBounds( const std::vector< Frame >& frames, int w, int h, float& x0, float& y0, float& x1, float& y1 )
 {
 	// 8/255 rather than 0: exported logos routinely carry a haze of near-zero
 	// alpha from antialiasing against a removed background, and trimming to
@@ -97,16 +102,19 @@ bool TrimBounds( const Frame& f, int w, int h, float& x0, float& y0, float& x1, 
 	const uint8_t kAlphaFloor = 8;
 
 	int minX = w, minY = h, maxX = -1, maxY = -1;
-	for( int y = 0; y < h; ++y )
+	for( const Frame& f : frames )
 	{
-		for( int x = 0; x < w; ++x )
+		for( int y = 0; y < h; ++y )
 		{
-			if( f.rgba[ ( static_cast< size_t >( y ) * w + x ) * 4 + 3 ] < kAlphaFloor )
-				continue;
-			if( x < minX ) minX = x;
-			if( x > maxX ) maxX = x;
-			if( y < minY ) minY = y;
-			if( y > maxY ) maxY = y;
+			for( int x = 0; x < w; ++x )
+			{
+				if( f.rgba[ ( static_cast< size_t >( y ) * w + x ) * 4 + 3 ] < kAlphaFloor )
+					continue;
+				if( x < minX ) minX = x;
+				if( x > maxX ) maxX = x;
+				if( y < minY ) minY = y;
+				if( y > maxY ) maxY = y;
+			}
 		}
 	}
 	if( maxX < minX || maxY < minY )
@@ -151,12 +159,14 @@ bool RasteriseSvg( NSVGimage* svg, int rasterPx, Frame& frame, int& outW, int& o
 	nsvgDeleteRasterizer( rast );
 	return true;
 }
-/// Fill in an image's trim box and trimmed aspect from its first frame.
+} // namespace
+
+/// Fill in an image's trim box and trimmed aspect from all of its frames.
 void ComputeTrim( Image& img )
 {
 	if( !img.Valid() )
 		return;
-	if( !TrimBounds( img.frames[ 0 ], img.width, img.height, img.trimX0, img.trimY0, img.trimX1, img.trimY1 ) )
+	if( !TrimBounds( img.frames, img.width, img.height, img.trimX0, img.trimY0, img.trimX1, img.trimY1 ) )
 	{
 		img.trimX0 = img.trimY0 = 0.0f;
 		img.trimX1 = img.trimY1 = 1.0f;
@@ -165,7 +175,6 @@ void ComputeTrim( Image& img )
 	const float th = ( img.trimY1 - img.trimY0 ) * static_cast< float >( img.height );
 	img.trimmedAspect = ( th > 0.0f ) ? ( tw / th ) : img.aspect;
 }
-} // namespace
 
 Unsupported ScanUnsupported( const std::string& text )
 {
