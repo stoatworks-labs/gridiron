@@ -81,11 +81,17 @@ out vec4 fragColour;
 // Outside the layer rectangle there is nothing, not the clamped edge pixel.
 // GL_CLAMP_TO_EDGE would smear the logo's border row across the whole letterbox
 // bar, which on a fitted wide mark paints two coloured stripes down the cell.
+//
+// Sampled everywhere and masked afterwards, never sampled inside an if: the
+// mip level comes from derivatives across a 2x2 pixel quad, and a quad
+// straddling the layer's edge with only some of its pixels sampling has none
+// defined. The driver then reads the 1x1 mip, and a faint line runs down the
+// cell wherever its edge meets the layer's.
 vec4 Tap( vec2 uv )
 {
-	if( uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 )
-		return vec4( 0.0 );
-	return texture( Logos, vec3( uv, vLayerUv.z ) );
+	vec4 c      = texture( Logos, vec3( uv, vLayerUv.z ) );
+	vec2 inside = step( vec2( 0.0 ), uv ) * step( uv, vec2( 1.0 ) );
+	return c * ( inside.x * inside.y );
 }
 
 // Gradient magnitude by Sobel, measured on ink coverage rather than on colour.

@@ -98,9 +98,10 @@ What is the plugin's and what is not:
   seconds, a cube cell on the wrong slice by a whole cell). Change one, change
   the other. `crosscheck.sh --frames DIR` also renders the real plugin class
   and the page (headless Chrome, SwiftShader) at nineteen settings and writes
-  side-by-side PNGs; on 2026-10-28, after the layout fixes below, every frame
-  agreed on where the wall is to 97% or better, with a mean difference under
-  0.7/255.
+  side-by-side PNGs; on 2026-10-28, after the fixes below, every frame agreed
+  on where the wall is to 99% or better, with a mean difference under 0.5/255.
+  The page in headless Chrome never drew the `Tap()` line below (SwiftShader
+  gives the branch its derivatives), so the frames there did not move.
 - **Not ported:** stb_image and nanosvg (the browser decodes; no TGA or PSD; a
   GIF's frames come from WebCodecs' `ImageDecoder`, and a browser without one
   shows the first frame and says so; the page removes live `<text>` from an SVG
@@ -126,12 +127,6 @@ them in the plugin first, then in the port, never the port alone:
   reference cube). The real fix is two stickers, a half each, which changes
   the picture at rest (Grid Lines would draw a line through the wordmark) --
   a design call, so it is not made.
-- **A one-pixel line at alpha ~25 down a cell's edge, where the edge of the
-  logo's layer meets it.** The cell shader's `Tap()` samples inside a branch,
-  so a 2x2 pixel quad straddling the layer's edge has no defined derivatives
-  and reads the 1x1 mip. `gdtest_render` measures ink above alpha 128 to step
-  round it. A fix is in `source/Shaders.cpp`, so it is spliced into the page by
-  `check_shaders.py --write`.
 
 Fixed on 2026-10-28, after v0.2.3 and not yet released; each has a check that
 fails on the old code, and the port follows:
@@ -153,6 +148,15 @@ fails on the old code, and the port follows:
   slices.** Its centre is on a slice boundary; slice membership is now tested
   at the centre of its first cell. The crosscheck now REQUIRES the arm64 build
   to agree with the x86_64 arithmetic within a hundredth, which it did not.
+- **A one-pixel line along a cell's edge wherever its logo's layer edge met
+  it** (the sides under a wide mark, top and bottom under a tall one), at alpha
+  ~25, and at 255 under Vectrix on every logo. `Tap()`
+  returned early outside the layer and sampled inside that branch, so a 2x2
+  pixel quad straddling the layer's edge had no defined derivatives and read
+  the 1x1 mip. It samples everywhere and masks afterwards: never put a
+  `texture()` back inside a branch that can split a quad. `gdtest_render`
+  counts stray pixels round a fitted wordmark, plain and traced (680 in two
+  columns on the old shader). The page has the shader by splice.
 
 ## Ground rules carried from the fleet
 

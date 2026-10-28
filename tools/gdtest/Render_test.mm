@@ -117,13 +117,8 @@ void RemoveLoneFolder( const std::string& folder, const std::string& name )
 	rmdir( folder.c_str() );
 }
 
-/// The bounding box of the solid ink, in pixels.
-///
-/// Solid, alpha above a half: the cell shader samples inside a branch, so where
-/// a cell edge meets a layer edge the 2x2 pixel quad straddling it has no
-/// defined derivatives and reads the 1x1 mip -- a one-pixel line at alpha ~25
-/// down the side of the cell, which is not the logo and is not what is
-/// measured here.
+/// The bounding box of the solid ink, in pixels: alpha above a half, so the
+/// filtered fringe round the artwork is not counted.
 struct InkBox
 {
 	int x0 = 0, y0 = 0, x1 = -1, y1 = -1;
@@ -578,6 +573,63 @@ int main( int argc, char** argv )
 				   std::fabs( static_cast< float >( stretch.Height() ) / ( cellH * inkH / static_cast< float >( img.height ) ) - 1.0f ) < 0.04f,
 			   "Stretch spreads the artwork, not its padded layer, over the cell" );
 		printf( "    Stretch: ink %dx%d px\n", stretch.Width(), stretch.Height() );
+
+		Check( glGetError() == GL_NO_ERROR, "and no GL error" );
+		lone.DeInitGL();
+		RemoveLoneFolder( folder, name );
+	}
+
+	printf( "nothing is drawn where a layer's edge meets a cell's\n" );
+	{
+		// Tap() returned nothing outside the layer and sampled inside that
+		// branch, so a 2x2 pixel quad straddling the layer's edge had no
+		// defined derivatives and read the 1x1 mip: a line at alpha ~25 the
+		// full height of the cell, down each side. bravo_wide.png fitted alone
+		// is as wide as its cell, so both sides of its layer land on the
+		// cell's. Away from the ink there must be nothing at all -- with the
+		// cell's edge kernel on too, whose nine taps go through Tap() as well.
+		const std::string fixtures = argv[ 1 ];
+		const std::string name     = "bravo_wide.png";
+		const std::string folder   = LoneFolder( fixtures, name );
+		Check( !folder.empty(), "a scratch folder holding bravo_wide.png alone" );
+
+		GridironPlugin lone;
+		SettleLone( lone, target, folder, name );
+		lone.SetFloatParameter( PT_FIT, 0.0f );// Fit
+
+		RenderAt( lone, target, 10.0 );
+		const std::vector< uint8_t > plain = RenderAt( lone, target, 10.0 );
+		const InkBox                 ink   = InkOf( plain );
+		Check( ink.Any(), "the wordmark draws" );
+
+		// Lit pixels further than kFringe from the solid ink, which is past
+		// the filtered fringe round the artwork and the edge kernel's reach.
+		constexpr int kFringe = 4;
+		auto stray = [ & ]( const std::vector< uint8_t >& px, const char* what ) {
+			int             n = 0, peak = 0;
+			std::set< int > columns;
+			for( int y = 0; y < kH; ++y )
+				for( int x = 0; x < kW; ++x )
+				{
+					const uint8_t a = px[ ( static_cast< size_t >( y ) * kW + x ) * 4 + 3 ];
+					if( a == 0 || ( x >= ink.x0 - kFringe && x <= ink.x1 + kFringe && y >= ink.y0 - kFringe && y <= ink.y1 + kFringe ) )
+						continue;
+					++n;
+					peak = std::max( peak, static_cast< int >( a ) );
+					columns.insert( x );
+				}
+			printf( "    %s: %d stray pixels in %zu columns, alpha up to %d\n", what, n, columns.size(), peak );
+			return n;
+		};
+
+		Check( stray( plain, "plain" ) == 0, "no stray pixels round a fitted wordmark" );
+
+		lone.SetFloatParameter( PT_EDGE, 3.0f );      // Vectrix (traced)
+		lone.SetFloatParameter( PT_EDGE_SCOPE, 1.0f );// Every logo
+		RenderAt( lone, target, 10.0 );
+		const std::vector< uint8_t > traced = RenderAt( lone, target, 10.0 );
+		Check( LitPixels( traced ) > 0, "the cell's edge kernel traces the wordmark" );
+		Check( stray( traced, "traced" ) == 0, "and leaves no stray pixels either" );
 
 		Check( glGetError() == GL_NO_ERROR, "and no GL error" );
 		lone.DeInitGL();

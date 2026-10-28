@@ -233,7 +233,7 @@ wall on screen under every motion control ten minutes into a composition.
 
 **Fixed on main since v0.2.3, not yet released.** Building the browser demo
 meant porting the layout to JavaScript and checking the port against the C++
-number for number, and that turned up four bugs in the plugin itself:
+number for number, and that turned up five bugs in the plugin itself:
 
 - **Fit, Fill and Stretch squashed every logo that isn't square.** Each logo
   sits in a square texture layer, padded, and those three modes stretched the
@@ -248,6 +248,12 @@ number for number, and that turned up four bugs in the plugin itself:
 - **On the cube, a wordmark across two cells turned with whichever slice a
   rounding error picked**, and Apple Silicon and Intel picked differently. It
   now turns with the slice holding its left-hand cell, on both.
+- **Some cells had a faint line along an edge**, wherever the edge of the
+  logo's texture layer met the edge of the cell. The shader only sampled the
+  logo inside the layer, and a GPU asked to pick a level of detail for half a
+  block of pixels picks whatever it likes. It liked the whole logo averaged
+  into one pixel. Under Vectrix on every logo the line was bright white. It
+  samples everywhere now and throws away what falls outside.
 
 Each has a check in the harness that fails on the old code.
 
