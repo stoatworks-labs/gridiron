@@ -8,7 +8,7 @@ list of fleet traps this plugin is known to be walking into.
 
 ## Status
 
-v0.2.3 is the current release (v0.1.0, the first, was **released** on
+v0.2.4 is the current release (v0.1.0, the first, was **released** on
 2026-08-24), and it is in other people's hands. Builds on macOS; `ctest` runs
 four suites and `oxbow selftest` confirms the bundle registers, instantiates and
 renders. Windows is built by CI only, never locally, and outside users run it in
@@ -130,8 +130,8 @@ them in the plugin first, then in the port, never the port alone:
   the picture at rest (Grid Lines would draw a line through the wordmark) --
   a design call, so it is not made.
 
-Fixed on 2026-10-28, after v0.2.3 and not yet released; each has a check that
-fails on the old code, and the port follows:
+Fixed on 2026-10-28 and released in v0.2.4; each has a check that fails on the
+old code, and the port follows:
 
 - **Fit (the default), Fill and Stretch squashed every non-square logo.** The
   atlas pads each logo into a square layer, and FitUv mapped the whole layer at

@@ -217,7 +217,7 @@ filing a bug, this is the single most useful thing to attach.
 
 ## Status
 
-**v0.2.3 released, and being run in Resolume by other people.** The first
+**v0.2.4 released, and being run in Resolume by other people.** The first
 field report was a Windows-only one (a black wall from a stale GL error read
 as a refused upload, and a whole-grid scroll that slid off frame and never
 wrapped), and both are fixed in v0.1.2, which also made the plugin write the
@@ -225,15 +225,16 @@ fleet's standard log file. v0.2.0 spreads the atlas upload over frames, adds a
 solid cell fill so the cube is no longer see-through, and stops the cube
 resetting; v0.2.1 and v0.2.2 are the Windows installer that no longer touches
 the system PATH, and dependency maintenance; v0.2.3 changes nothing but the
-name Resolume's browser shows, now `SW Gridiron`. Verified as far as an offline
+name Resolume's browser shows, now `SW Gridiron`; v0.2.4 is the five fixes
+below. Verified as far as an offline
 harness and `oxbow selftest` can reach:
 the bundle registers, instantiates, loads a folder and draws a wall, a hero
 block, per-cell line art and a turning cube, with no GL errors, and holds the
 wall on screen under every motion control ten minutes into a composition.
 
-**Fixed on main since v0.2.3, not yet released.** Building the browser demo
-meant porting the layout to JavaScript and checking the port against the C++
-number for number, and that turned up five bugs in the plugin itself:
+**Fixed in v0.2.4.** Building the browser demo meant porting the layout to
+JavaScript and checking the port against the C++ number for number, and that
+turned up five bugs in the plugin itself:
 
 - **Fit, Fill and Stretch squashed every logo that isn't square.** Each logo
   sits in a square texture layer, padded, and those three modes stretched the

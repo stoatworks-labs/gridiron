@@ -57,8 +57,11 @@ Accepted content:
 | gif | stb_image | animated; a layer per frame, played at the file's own delays |
 | svg | nanosvg | **rasterised at cell size**, see below |
 
-**Vector logos rasterise at the size the cell actually is**, and re-rasterise when
-the cell footprint changes. This is burin's central trick and it matters more here
+**Vector logos should rasterise at the size the cell actually is**, and re-rasterise
+when the cell footprint changes. They do not yet: `PollLoader` draws every SVG at
+512 px on its longer side, once, because re-rasterising per cell size would
+re-upload the whole folder on every drag of a window edge. `Rerasterise` exists
+for the day that changes. This is burin's central trick and it matters more here
 than it did there: a press wall is the one place where the same logo is drawn at
 wildly different sizes depending on grid density, and resampling a fixed-size PNG
 is exactly what makes a sponsor board look cheap. Real sponsor packs are vector.

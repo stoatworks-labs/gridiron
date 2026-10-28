@@ -8,7 +8,7 @@ awkward cases are the whole point:
 
 | group | files | what they exercise |
 |---|---|---|
-| Resolume | `resolume-avenue.svg` `resolume-wire.svg` `resolume-arena.svg` | vector logos, rasterised at cell size |
+| Resolume | `resolume-avenue.svg` `resolume-wire.svg` `resolume-arena.svg` | vector logos, rasterised at 512 px on their longer side |
 | Stoatworks | `stoatworks-mark.png` `stoatworks-lockup.png` `stoatworks-stoat.svg` | the 881x209 lockup is a 4.2:1 wordmark and claims two cells |
 | App graphics | `app-*.png` | 16:9 panels with no alpha at all |
 | Invented sponsors | `sponsor-*.png` | roundels and wordmarks across a wide spread of aspects |
