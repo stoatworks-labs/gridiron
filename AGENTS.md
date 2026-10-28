@@ -101,7 +101,9 @@ What is the plugin's and what is not:
   side-by-side PNGs; on 2026-10-28, after the fixes below, every frame agreed
   on where the wall is to 99% or better, with a mean difference under 0.5/255.
   The page in headless Chrome never drew the `Tap()` line below (SwiftShader
-  gives the branch its derivatives), so the frames there did not move.
+  gives the branch its derivatives), so the frames there did not move; Chrome
+  on the Mac's own GPU (ANGLE Metal, M4 Max) did draw it, so a fault of that
+  kind shows on the page only on real hardware.
 - **Not ported:** stb_image and nanosvg (the browser decodes; no TGA or PSD; a
   GIF's frames come from WebCodecs' `ImageDecoder`, and a browser without one
   shows the first frame and says so; the page removes live `<text>` from an SVG
