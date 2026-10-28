@@ -66,6 +66,66 @@ hand.
   file here is hand-written and provisional. Register it before release, and note
   that the script's `--only` flag truncates the file rather than filtering it.
 
+## The browser demo (`demo/`)
+
+Live at <https://gridiron-demo.stoatworks-labs.com/>, a Cloudflare Worker on a
+zone **route** (`wrangler.toml`; it needs the proxied `gridiron-demo` AAAA
+100:: record, and deleting that record takes the page dark under a green
+deploy). `.github/workflows/deploy.yml` redeploys it on a push to main.
+
+**`demo/` is two things.** `demo/logos` and `demo/README.md` are the logo pack
+the release copies into the download as "demo logos"; everything else in
+`demo/` is the page, which serves `logos/` as its default wall. The release job
+copies those two by name and nothing else. Never widen that to the whole
+folder, and never put anything in `demo/logos` that is not a logo:
+`demo/tools/check_pack.py` fails verify if `DEMO_PACK` in `demo/plugin.js` and
+the folder disagree, or if the folder holds a file the plugin would not read.
+`demo/.assetsignore` keeps `tools/` and the pack's README off the site.
+`demo/vendor/` is the shared kit, copied from `stoatworks-backend` -- do not edit.
+
+What is the plugin's and what is not:
+
+- **The shaders are the plugin's.** `demo/shaders.js` is `source/Shaders.cpp`,
+  spliced by `demo/tools/check_shaders.py --write`; verify fails on a changed
+  character.
+- **The CPU half is a port** (`demo/port.js`): ScanFolder's rules, the trim,
+  Atlas's geometry and blit, Fill, Layout, Mat4, Hash and Controls.h, in float
+  arithmetic. `demo/tools/crosscheck/crosscheck.sh` (run by verify) holds Fill,
+  Layout and Controls to the C++: schedules and every integer identical, floats
+  within 1e-6 (V8's sin/cos/tan/pow against Apple's libm). Change one, change
+  the other. `crosscheck.sh --frames DIR` also renders the real plugin class
+  and the page (headless Chrome, SwiftShader) at nineteen settings and writes
+  side-by-side PNGs; on 2026-10-28 every frame agreed on where the wall is to
+  97% or better, with a mean difference under 0.7/255.
+- **Not ported:** stb_image and nanosvg (the browser decodes; no TGA or PSD; the
+  page removes live `<text>` from an SVG because nanosvg draws none, but the
+  browser still draws the clip paths, masks and filters nanosvg drops), the
+  Clock's seconds-or-milliseconds vote, and Diag's log. A page cannot read the
+  folder around a picked file, so Logos is a folder/files picker and a drop,
+  and Folder Override does nothing.
+
+**The page reproduces the plugin, faults included.** These look wrong and are
+what the plugin does -- the crosscheck matched each against the real class. Fix
+them in the plugin first, then in the port, never the port alone:
+
+- **Fit (the default), Fill and Stretch distort any logo that is not square.**
+  Atlas pads each logo into a square layer, but FitUv maps the whole layer at
+  the logo's own aspect, so a 4:1 wordmark is drawn at about 16:1. Trim margins
+  uses the trim box and is right.
+- **Scroll's wrap-around copies are drawn unfitted.** BuildLayout copies the
+  cell into `ghosts` before FitUv and the edge flag are set, so the mark at
+  each scrolling edge shows the whole layer stretched, with no edge treatment.
+- **An animated GIF never animates.** The atlas holds frame 0 only and nothing
+  reads `CellTransform::frame`. The README says animated GIFs play.
+- **On the cube, a two-cell wordmark sits on a slice boundary.** Its centre is
+  exactly between two slices, so which one it turns with is decided by
+  rounding, and the arm64 build (fused multiply-adds) and the x86_64 build
+  disagree (the crosscheck reports it). The page follows x86_64.
+- **With a hero block, the schedule always says PARITY NOT EXACT (0..N).** The
+  hero's logo is out of the rotation and still counted, with 0 placements, so
+  `exactParity` is false whatever the wall. The plugin never shows that note;
+  the page prints it under the picture.
+
 ## Ground rules carried from the fleet
 
 - Every ranged parameter is **0..1 host-side**, mapped in `Controls.h`.

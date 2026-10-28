@@ -106,6 +106,11 @@ jobs:
           # broken install rather than as a missing input -- and every logo lying
           # around on the internet is somebody's mark under somebody's terms.
           # See demo/README.md for what is in here and what may be reused.
+          #
+          # By name, never the whole of demo/: it is also the browser demo's
+          # page (index.html, plugin.js, vendor/, tools/), none of which belongs
+          # in a plugin download. demo/tools/check_pack.py keeps demo/logos to
+          # logos.
           mkdir -p "out/demo logos"
           cp demo/logos/* "out/demo logos/"
           cp demo/README.md "out/demo logos/README.md"

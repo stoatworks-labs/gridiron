@@ -22,6 +22,12 @@ It's an FFGL source plugin for Resolume Arena and Avenue.
 
 <sub>Rendered by the plugin's own offline harness rather than captured from Resolume. The logos are the demo pack that ships with the download: Stoatworks' own marks, a few project graphics, and a set of invented sponsors named after the trade: Colour Bars & Grill, Haze & Confused, Gobo Getters, Truss Issues. The Resolume product marks are Resolume's own, included as sample content only.</sub>
 
+**[Try it in your browser](https://gridiron-demo.stoatworks-labs.com)**: the
+plugin's own shaders in WebGL2, over a JavaScript port of the arrangement and
+the layout, starting on the demo pack. Drop your own logos on it; they don't
+leave the page. It's a port rather than the plugin, so have a read of what the
+page says it doesn't reproduce.
+
 <!-- downloads:start -->
 
 ## Download
@@ -152,6 +158,29 @@ hero.
 Per-logo is the reason these are built in rather than left to the Resolume
 chain: hero solid, everything else line art, isn't something you can get by
 stacking a plugin on top.
+
+## Browser demo
+
+**<https://gridiron-demo.stoatworks-labs.com/>** runs the wall shader and the
+composite, spliced unedited from `source/Shaders.cpp` into `demo/shaders.js`
+(`demo/tools/check_shaders.py` fails `tools/verify.sh` on a changed character).
+Everything that decides what they draw is a JavaScript port in `demo/port.js`:
+the folder rules, the trim, the atlas geometry, `Fill.cpp`, `Layout.cpp` and
+the mappings. `demo/tools/crosscheck/` holds the port to the C++ and verify runs
+it: every schedule and every cell's logo identical, every position within a
+millionth. With `--frames` it also renders the real plugin class and the page at
+nineteen settings and compares the pictures.
+
+What it can't do is decode like the plugin. The browser's decoders stand in for
+stb_image and nanosvg, so TGA and PSD don't load, and an SVG can look better in
+the browser than it will in Resolume, because the browser draws the clip paths
+and masks nanosvg drops. Live text is the exception: the page takes it out,
+because nanosvg draws none. And a web page can't see the folder around a file
+you pick, so it asks for the folder instead.
+
+The page lives in `demo/` beside the logo pack, which is its default wall. The
+release copies only `demo/logos` and the pack's `demo/README.md` into the
+download, so none of the page ships with the plugin.
 
 ## Building
 

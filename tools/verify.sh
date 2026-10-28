@@ -162,6 +162,33 @@ for t in gdtest_library gdtest_render; do
 	fi
 done
 
+#---------------------------------------------------------------------------
+# The browser demo (demo/). Its shaders must be the plugin's, character for
+# character; its list of the logo pack must be the folder; and its JavaScript
+# port of Fill, Layout and Controls must build the walls the C++ builds. None
+# of this touches the plugin, but a plugin change that the page does not follow
+# fails here rather than on the live demo.
+#---------------------------------------------------------------------------
+step "demo"
+if python3 demo/tools/check_shaders.py >/dev/null 2>&1; then
+	pass "the demo's shaders are the plugin's"
+else
+	fail "the demo's shaders have drifted -- see: python3 demo/tools/check_shaders.py"
+fi
+if python3 demo/tools/check_pack.py >/dev/null 2>&1; then
+	pass "the demo's list of the logo pack is demo/logos"
+else
+	fail "the demo's DEMO_PACK and demo/logos disagree -- see: python3 demo/tools/check_pack.py"
+fi
+if ! command -v node >/dev/null 2>&1; then
+	printf '   skipped: node not installed, so the port crosscheck cannot run\n'
+elif out=$( demo/tools/crosscheck/crosscheck.sh 2>&1 ); then
+	pass "the demo's port builds the plugin's walls (demo/tools/crosscheck)"
+else
+	fail "the demo's port differs from the plugin's C++"
+	printf '%s\n' "$out" | sed 's/^/      /'
+fi
+
 BUNDLE="$BUILD/Gridiron.bundle"
 BIN="$BUNDLE/Contents/MacOS/Gridiron"
 
